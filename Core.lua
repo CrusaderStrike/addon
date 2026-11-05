@@ -9,7 +9,7 @@ CrusaderStrike = CrusaderStrike or {}
 local CS = CrusaderStrike
 
 CS.ADDON_NAME = "CrusaderStrike"
-CS.VERSION = "0.1.0"
+CS.VERSION = "0.1.1"
 -- SavedVariables layout version. 2 adds CrusaderStrikeCharDB.pvp (docs/pvp-schema.md).
 -- The run export payload keeps its own schemaVersion (1) in Logic/RunLifecycle.lua.
 CS.SCHEMA_VERSION = 2
