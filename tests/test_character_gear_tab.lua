@@ -90,7 +90,9 @@ describe("character gear tab scaffold", function()
     eq(showCalls, 0)
     eq(uiPanelCalls, 0)
     eq(equipHidden, false)
-    eq(_G.PaperDollFrame.shown, true)
+    -- PaperDoll stays in the tab list, but it is hidden while CS is showing
+    -- so its text cannot bleed through the gear strip.
+    eq(_G.PaperDollFrame.shown, false)
     eq(_G.CharacterFrame.activeSubframe, "PaperDollFrame")
     eq(_G.CharacterFrame._selected, nil)
     eq(_G.CharacterFrame._width, 338)
@@ -177,6 +179,7 @@ describe("character gear tab scaffold", function()
     UI.Leave()
     eq(UI.GetPreview().active, false)
     eq(_G.CrusaderStrikeCharacterGearFrame:IsShown(), false)
+    eq(_G.PaperDollFrame.shown, true)
     eq(head:GetScript("OnClick"), blizzardHandler)
 
     _G.CharacterFrame = prevChar
@@ -573,5 +576,75 @@ describe("character gear tab scaffold", function()
     _G.UnitClass = prevClass
     _G.GetItemInfoInstant = prevInfo
     _G.CharacterFrame = prevChar
+  end)
+
+  it("hides other character panes while CS is open and restores them on leave", function()
+    local UI = CrusaderStrike.CharacterGearTab
+    local prevChar = _G.CharacterFrame
+    local saved = {
+      PaperDollFrame = _G.PaperDollFrame,
+      StatisticsFrame = _G.StatisticsFrame,
+      SkillFrame = _G.SkillFrame,
+      ReputationFrame = _G.ReputationFrame,
+      TalentRespecFrame = _G.TalentRespecFrame,
+      CharacterFrameCloseButton = _G.CharacterFrameCloseButton,
+    }
+    local function pane(name, shown)
+      local frame = CreateFrame("Frame", name)
+      if frame.SetShown then
+        frame:SetShown(shown)
+      elseif shown and frame.Show then
+        frame:Show()
+      end
+      return frame
+    end
+    local stats = pane("StatisticsFrame", true)
+    local paper = pane("PaperDollFrame", true)
+    local skills = pane("SkillFrame", true)
+    local rep = pane("ReputationFrame", false)
+    local talent = pane("TalentRespecFrame", true)
+    function talent:IsProtected()
+      return true
+    end
+    local closeBtn = pane("CharacterFrameCloseButton", true)
+    _G.CharacterFrame = {
+      ModeTabs = {
+        Tabs = {
+          { frameName = "StatisticsFrame", IsShown = function() return true end },
+        },
+      },
+      activeSubframe = "PaperDollFrame",
+      shown = true,
+      IsShown = function(self) return self.shown end,
+      GetChildren = function()
+        return stats, paper, skills, talent, closeBtn
+      end,
+    }
+    UI.Leave()
+    UI.Show()
+    eq(UI.GetPreview().active, true)
+    local root = _G.CrusaderStrikeCharacterGearFrame
+    ok(root._csOpaqueCover)
+    eq(root:GetFrameLevel(), 1000)
+    eq(stats:IsShown(), false)
+    eq(paper:IsShown(), false)
+    eq(skills:IsShown(), false)
+    eq(rep:IsShown(), false)
+    -- Protected talent UI and the character close button stay up.
+    eq(talent:IsShown(), true)
+    eq(closeBtn:IsShown(), true)
+    UI.Leave()
+    eq(stats:IsShown(), true)
+    eq(paper:IsShown(), true)
+    eq(skills:IsShown(), true)
+    eq(rep:IsShown(), false)
+    eq(root:IsShown(), false)
+    _G.CharacterFrame = prevChar
+    _G.PaperDollFrame = saved.PaperDollFrame
+    _G.StatisticsFrame = saved.StatisticsFrame
+    _G.SkillFrame = saved.SkillFrame
+    _G.ReputationFrame = saved.ReputationFrame
+    _G.TalentRespecFrame = saved.TalentRespecFrame
+    _G.CharacterFrameCloseButton = saved.CharacterFrameCloseButton
   end)
 end)
