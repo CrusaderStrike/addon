@@ -124,7 +124,7 @@ describe("character gear tab scaffold", function()
     eq(dp, "CENTER")
     eq(drel, root)
     eq(drp, "CENTER")
-    eq(dx, -math.floor(UI.SIDEBAR_WIDTH / 2))
+    eq(dx, 0)
     eq(dy, 0)
     eq(drel == _G.UIParent, false)
     eq(drel == _G.CharacterFrame, false)
@@ -462,7 +462,7 @@ describe("character gear tab scaffold", function()
     eq(dp, "CENTER")
     eq(drel, root)
     eq(drp, "CENTER")
-    eq(dx, -math.floor(UI.SIDEBAR_WIDTH / 2))
+    eq(dx, 0)
     eq(dy, 0)
     eq(drel == _G.UIParent, false)
     eq(drel == _G.CharacterFrame, false)
@@ -664,9 +664,11 @@ describe("character gear tab scaffold", function()
     UI.OnGearSlot("main_hand", "LeftButton")
     ok(UI.EquipItem(900001))
     UI.OnGearSlot("off_hand", "LeftButton")
-    ok(UI.EquipItem(900001))
+    local okGeneric, whyGeneric = UI.EquipItem(900001)
+    eq(okGeneric, false)
+    eq(whyGeneric, "wrong_slot")
     eq(UI.GetPreview().slots.main_hand, 900001)
-    eq(UI.GetPreview().slots.off_hand, 900001)
+    eq(UI.GetPreview().slots.off_hand, nil)
 
     slots = UI.GetPreview().slots
     for slot in pairs(slots) do
@@ -677,7 +679,7 @@ describe("character gear tab scaffold", function()
     UI.OnGearSlot("off_hand", "LeftButton")
     local okTwo, whyTwo = UI.EquipItem(900006)
     eq(okTwo, false)
-    eq(whyTwo, "dual_mainhand")
+    eq(whyTwo, "wrong_slot")
 
     eq(UI.AcceptsWeapon(900002, "ranged", "DRUID"), false)
     eq(UI.AcceptsWeapon(900002, nil, "DRUID"), false)
@@ -826,16 +828,16 @@ describe("character gear tab scaffold", function()
     eq(UI.GetPreview().slots.off_hand, nil)
     ok(try_slot("WARRIOR", "main_hand", 920001))
     eq(UI.GetPreview().slots.main_hand, 920001)
-    ok(try_slot("WARRIOR", "off_hand", 920003))
-    eq(UI.GetPreview().slots.off_hand, 920003)
+    eq(select(1, try_slot("WARRIOR", "off_hand", 920003)), false)
+    eq(UI.GetPreview().slots.off_hand, nil)
     local okOne, whyOne = try_slot("DRUID", "off_hand", 920003)
     eq(okOne, false)
     eq(whyOne, "wrong_slot")
     eq(UI.GetPreview().slots.off_hand, nil)
     local okHunter, whyHunter = try_slot("HUNTER", "off_hand", 920003)
     eq(okHunter, false)
-    eq(whyHunter, "dual_mainhand")
-    ok(try_slot("ROGUE", "off_hand", 920003))
+    eq(whyHunter, "wrong_slot")
+    eq(select(1, try_slot("ROGUE", "off_hand", 920003)), false)
     eq(select(1, try_slot("WARRIOR", "main_hand", 920004)), false)
     ok(try_slot("WARRIOR", "off_hand", 920004))
     eq(select(1, try_slot("WARRIOR", "main_hand", 920005)), false)
@@ -848,8 +850,9 @@ describe("character gear tab scaffold", function()
     eq(select(1, try_slot("MAGE", "main_hand", 920008)), false)
     ok(try_slot("MAGE", "ranged", 920008))
     eq(UI.AcceptsWeapon(920001, "off_hand", "WARRIOR"), false)
-    eq(UI.AcceptsWeapon(920003, "off_hand", "WARRIOR"), true)
+    eq(UI.AcceptsWeapon(920003, "off_hand", "WARRIOR"), false)
     eq(UI.AcceptsWeapon(920003, "off_hand", "HUNTER"), false)
+    eq(UI.AcceptsWeapon(920003, "off_hand", "ROGUE"), false)
     eq(select(1, try_slot("DRUID", "off_hand", 920003)), false)
     eq(select(1, try_slot("DRUID", "off_hand", 920004)), false)
     eq(select(1, try_slot("DRUID", "off_hand", 920005)), false)
@@ -970,5 +973,199 @@ describe("character gear tab scaffold", function()
 
     _G.CharacterFrame = prevChar
     _G.PaperDollFrame = prevPaper
+  end)
+
+  it("keeps the pop-out open the first time Gear Sets is selected", function()
+    local UI = CrusaderStrike.CharacterGearTab
+    local prevChar = _G.CharacterFrame
+    _G.CharacterFrame = {
+      ModeTabs = { Tabs = {} },
+      shown = true,
+      IsShown = function(self) return self.shown end,
+    }
+    UI.Show()
+    UI.TogglePane("browser")
+    UI.TogglePane("sets")
+    -- Default open: Gear Sets is showing, but the player has not latched it yet.
+    _G.CrusaderStrikeGearPopout._csPaneLatched = false
+    eq(UI.GetPreview().popout, true)
+    eq(UI.GetPreview().view, "sets")
+    local icon = _G.CrusaderStrikeGearSetsIcon
+    icon:GetScript("OnClick")(icon)
+    eq(UI.GetPreview().popout, true)
+    eq(UI.GetPreview().view, "sets")
+    ok(_G.CrusaderStrikeGearPopout:IsShown())
+    ok(_G.CrusaderStrikeGearSetsPanel:IsShown())
+    eq(_G.CrusaderStrikeGearBrowserPanel:IsShown(), false)
+    eq(_G.CrusaderStrikeGearStatsPanel:IsShown(), false)
+    _G.CharacterFrame = prevChar
+  end)
+
+  it("lists a saved gear set and updates on rename and delete", function()
+    local UI = CrusaderStrike.CharacterGearTab
+    local prevChar = _G.CharacterFrame
+    local prevDb = _G.CrusaderStrikeCharDB
+    _G.CrusaderStrikeCharDB = {}
+    _G.CharacterFrame = {
+      ModeTabs = { Tabs = {} },
+      shown = true,
+      IsShown = function(self) return self.shown end,
+    }
+    UI.Show()
+    UI.TogglePane("sets")
+    UI.OnGearSlot("head", "LeftButton")
+    ok(UI.EquipItem(14148))
+    _G.CrusaderStrikeGearSetName:SetText("lol")
+    _G.CrusaderStrikeGearSaveSet:GetScript("OnClick")()
+    local row = _G.CrusaderStrikeGearSetsPanel._csRows[1]
+    ok(row:IsShown())
+    ok(row:GetText():find("lol", 1, true) ~= nil)
+    eq(row:GetParent(), _G.CrusaderStrikeGearSetsPanel)
+    local localId = row._localId
+    ok(localId ~= nil)
+    local updated = CrusaderStrikeGearSets.UpdateSet(_G.CrusaderStrikeCharDB, localId, { name = "renamed" }, 25)
+    ok(updated ~= nil)
+    ok(row:IsShown())
+    ok(row:GetText():find("renamed", 1, true) ~= nil)
+    row:GetScript("OnClick")(row)
+    eq(UI.GetPreview().localId, localId)
+    ok(CrusaderStrikeGearSets.DeleteSet(_G.CrusaderStrikeCharDB, localId))
+    eq(row:IsShown(), false)
+    eq(UI.GetPreview().localId, nil)
+    _G.CharacterFrame = prevChar
+    _G.CrusaderStrikeCharDB = prevDb
+  end)
+
+  it("enforces off-hand marks and armor tiers on every equip path", function()
+    local UI = CrusaderStrike.CharacterGearTab
+    local prevClass = _G.UnitClass
+    local prevInfo = _G.GetItemInfoInstant
+    local prevDb = _G.CrusaderStrikeCharDB
+    local prevChar = _G.CharacterFrame
+    _G.CrusaderStrikeCharDB = {}
+    _G.CharacterFrame = {
+      ModeTabs = { Tabs = {} },
+      shown = true,
+      IsShown = function(self) return self.shown end,
+    }
+    local info = {
+      [930101] = { "Weapon", "Daggers", "INVTYPE_WEAPONOFFHAND", 2, 15 },
+      [930102] = { "Weapon", "Daggers", "INVTYPE_WEAPONMAINHAND", 2, 15 },
+      [930103] = { "Weapon", "Daggers", "INVTYPE_WEAPON", 2, 15 },
+      [930104] = { "Weapon", "Two-Handed Swords", "INVTYPE_2HWEAPON", 2, 8 },
+      [930105] = { "Armor", "Shields", "INVTYPE_SHIELD", 4, 6 },
+      [930106] = { "Armor", "Miscellaneous", "INVTYPE_HOLDABLE", 4, 0 },
+      [930111] = { "Armor", "Cloth", "INVTYPE_CHEST", 4, 1 },
+      [930112] = { "Armor", "Leather", "INVTYPE_CHEST", 4, 2 },
+      [930113] = { "Armor", "Mail", "INVTYPE_CHEST", 4, 3 },
+      [930114] = { "Armor", "Plate", "INVTYPE_CHEST", 4, 4 },
+    }
+    _G.GetItemInfoInstant = function(itemId)
+      local row = info[tonumber(itemId)]
+      if not row then
+        return prevInfo(itemId)
+      end
+      return itemId, row[1], row[2], row[3], "Interface\\Icons\\INV_CS_Item_" .. tostring(itemId), row[4], row[5]
+    end
+    local classes = { "WARRIOR", "ROGUE", "HUNTER", "DRUID", "SHAMAN", "PALADIN", "MAGE", "PRIEST", "WARLOCK" }
+    local offhandWeapon = { WARRIOR = true, ROGUE = true, HUNTER = true }
+    local shieldClass = { WARRIOR = true, PALADIN = true, SHAMAN = true }
+    local armorMax = {
+      MAGE = 1, PRIEST = 1, WARLOCK = 1,
+      DRUID = 2, ROGUE = 2,
+      HUNTER = 3, SHAMAN = 3,
+      WARRIOR = 4, PALADIN = 4,
+    }
+    local armorItem = { [1] = 930111, [2] = 930112, [3] = 930113, [4] = 930114 }
+    for _, classToken in ipairs(classes) do
+      eq(select(1, UI.CheckEquip(930101, "off_hand", {}, classToken)), offhandWeapon[classToken] == true)
+      eq(select(1, UI.CheckEquip(930102, "off_hand", {}, classToken)), false)
+      eq(select(1, UI.CheckEquip(930103, "off_hand", {}, classToken)), false)
+      eq(select(1, UI.CheckEquip(930104, "off_hand", {}, classToken)), false)
+      eq(select(1, UI.CheckEquip(930105, "off_hand", {}, classToken)), shieldClass[classToken] == true)
+      eq(select(1, UI.CheckEquip(930106, "off_hand", {}, classToken)), true)
+      eq(select(1, UI.CheckEquip(930199, "off_hand", {}, classToken)), false)
+      for tier = 1, 4 do
+        local allowed = tier <= armorMax[classToken]
+        eq(select(1, UI.CheckEquip(armorItem[tier], "chest", {}, classToken)), allowed)
+        eq(UI.AcceptsWeapon(armorItem[tier], "chest", classToken), allowed)
+      end
+    end
+    -- Cloak slot is not tiered. Mail on the back is unaffected.
+    eq(UI.AcceptsWeapon(930113, "back", "DRUID"), true)
+
+    _G.UnitClass = function() return "Druid", "DRUID" end
+    UI.Show()
+    UI.OnGearSlot("chest", "LeftButton")
+    eq(select(1, UI.EquipItem(930113)), false)
+    eq(select(1, UI.EquipItem(930114)), false)
+    UI.OnGearSlot("off_hand", "LeftButton")
+    eq(select(1, UI.EquipItem(930101)), false)
+    eq(select(1, UI.EquipItem(930103)), false)
+    ok(select(1, UI.EquipItem(930106)))
+
+    local db = _G.CrusaderStrikeCharDB
+    local list = CrusaderStrikeGearSets.CreateSet(db, {
+      name = "Path",
+      type = "leveling",
+      until_level = 20,
+    }, 10)
+    ok(list ~= nil)
+    local savedMail, mailErr = CrusaderStrikeGearSets.SetSlot(db, list.local_id, "chest", 930113)
+    eq(savedMail, nil)
+    eq(mailErr, "class_armor")
+    eq(list.slots.chest, nil)
+    local savedPlate, plateErr = CrusaderStrikeGearSets.SetSlot(db, list.local_id, "chest", 930114)
+    eq(savedPlate, nil)
+    eq(plateErr, "class_armor")
+    local savedLeather = CrusaderStrikeGearSets.SetSlot(db, list.local_id, "hands", 930112)
+    ok(savedLeather ~= nil)
+    eq(list.slots.hands, 930112)
+    local savedOH, ohErr = CrusaderStrikeGearSets.SetSlot(db, list.local_id, "off_hand", 930101)
+    eq(savedOH, nil)
+    eq(ohErr, "wrong_slot")
+
+    ok(CrusaderStrikeGearSets.ApplyImport(db, {
+      lists = {
+        {
+          local_id = "mail-imp",
+          name = "Imported",
+          type = "max_level",
+          edited_at = "2099-01-01T00:00:00Z",
+          edited_in = "web",
+          slots = { chest = 930113, head = 930112, off_hand = 930102 },
+          removes = {},
+        },
+      },
+    }))
+    local imported = CrusaderStrikeGearSets.FindByLocalId(db, "mail-imp")
+    eq(imported.slots.chest, nil)
+    eq(imported.slots.head, 930112)
+    eq(imported.slots.off_hand, nil)
+
+    local live = CrusaderStrikeGearSets.FindByLocalId(db, list.local_id)
+    live.slots.chest = 930113
+    live.slots.wrist = 930111
+    ok(UI.SelectSet(live.local_id))
+    eq(UI.GetPreview().slots.chest, nil)
+    eq(UI.GetPreview().slots.wrist, 930111)
+    eq(UI.GetPreview().slots.hands, 930112)
+
+    _G.UnitClass = function() return "Hunter", "HUNTER" end
+    local hunterSet = CrusaderStrikeGearSets.CreateSet(db, {
+      name = "Hunter OH",
+      type = "leveling",
+      until_level = 20,
+    }, 10)
+    local hunterOH = CrusaderStrikeGearSets.SetSlot(db, hunterSet.local_id, "off_hand", 930101)
+    ok(hunterOH ~= nil)
+    eq(hunterSet.slots.off_hand, 930101)
+    local hunterGeneric = CrusaderStrikeGearSets.SetSlot(db, hunterSet.local_id, "off_hand", 930103)
+    eq(hunterGeneric, nil)
+
+    _G.UnitClass = prevClass
+    _G.GetItemInfoInstant = prevInfo
+    _G.CrusaderStrikeCharDB = prevDb
+    _G.CharacterFrame = prevChar
   end)
 end)

@@ -372,7 +372,13 @@ function G.SetSlot(charDB, local_id, slot, item_id)
     if type(item_id) ~= "number" or item_id ~= math.floor(item_id) or item_id < 1 or item_id > 2147483647 then
       return nil, "validation"
     end
-    if slot == "off_hand" and CrusaderStrikeGearSlots.OffhandRejects(item_id) then
+    if CrusaderStrikeGearEquip and CrusaderStrikeGearEquip.CanPlace then
+      local classToken = CrusaderStrikeGearEquip.PlayerClass()
+      local okPlace, placeReason = CrusaderStrikeGearEquip.CanPlace(item_id, slot, classToken, list.slots)
+      if not okPlace then
+        return nil, placeReason or "wrong_slot"
+      end
+    elseif slot == "off_hand" and CrusaderStrikeGearSlots.OffhandRejects(item_id) then
       return nil, "wrong_slot"
     end
   end
@@ -943,7 +949,9 @@ function G.ApplyImport(charDB, payload)
       end
       copied.role_spec = role_spec
       copied.slots = apply_removes_to_slots(copied.slots, incoming.removes)
-      if type(copied.slots) == "table" and CrusaderStrikeGearSlots.OffhandRejects(copied.slots.off_hand) then
+      if CrusaderStrikeGearEquip and CrusaderStrikeGearEquip.DropIllegal then
+        CrusaderStrikeGearEquip.DropIllegal(copied.slots)
+      elseif type(copied.slots) == "table" and CrusaderStrikeGearSlots.OffhandRejects(copied.slots.off_hand) then
         copied.slots.off_hand = nil
       end
       copied.removes = {} -- consumed
@@ -973,15 +981,21 @@ function G.ApplyImport(charDB, payload)
         end
         if type(incoming.slots) == "table" then
           for k, v in pairs(incoming.slots) do
-            if k == "off_hand" and CrusaderStrikeGearSlots.OffhandRejects(v) then
-              -- Leave the off-hand unset rather than placing a main-hand weapon.
-            else
+            local accept = true
+            if CrusaderStrikeGearEquip and CrusaderStrikeGearEquip.CanPlace then
+              accept = CrusaderStrikeGearEquip.CanPlace(v, k, CrusaderStrikeGearEquip.PlayerClass(), incoming.slots)
+            elseif k == "off_hand" and CrusaderStrikeGearSlots.OffhandRejects(v) then
+              accept = false
+            end
+            if accept then
               existing.slots[k] = v
             end
           end
         end
         existing.slots = apply_removes_to_slots(existing.slots, incoming.removes)
-        if type(existing.slots) == "table" and CrusaderStrikeGearSlots.OffhandRejects(existing.slots.off_hand) then
+        if CrusaderStrikeGearEquip and CrusaderStrikeGearEquip.DropIllegal then
+          CrusaderStrikeGearEquip.DropIllegal(existing.slots)
+        elseif type(existing.slots) == "table" and CrusaderStrikeGearSlots.OffhandRejects(existing.slots.off_hand) then
           existing.slots.off_hand = nil
         end
         existing.removes = {}

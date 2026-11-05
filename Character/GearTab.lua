@@ -407,6 +407,7 @@ local function refresh_top_tabs()
 end
 
 local refresh_browser
+local refresh_gear_list
 
 local function show_view(view)
   if view == "browser" then
@@ -418,6 +419,9 @@ local function show_view(view)
   end
   state.popout = true
   refresh_top_tabs()
+  if refresh_gear_list then
+    refresh_gear_list()
+  end
   if refresh_browser then
     refresh_browser()
   end
@@ -431,10 +435,28 @@ function UI.TogglePane(view)
   if view ~= "browser" and view ~= "stats" then
     view = "sets"
   end
+  -- Gear Sets is the pane shown on first open, before any tab click. That
+  -- first Gear Sets click must keep the pop-out up. Browser and Stats, and a
+  -- later Gear Sets click, still toggle the pop-out closed.
+  local setsAlreadyOpen = state.popout and state.view == "sets" and view == "sets"
+  local setsLatched = popout and popout._csPaneLatched
+  if setsAlreadyOpen and not setsLatched then
+    if popout then
+      popout._csPaneLatched = true
+    end
+    show_view("sets")
+    return
+  end
   if state.popout and state.view == view then
     state.popout = false
+    if popout then
+      popout._csPaneLatched = false
+    end
     refresh_top_tabs()
     return
+  end
+  if popout then
+    popout._csPaneLatched = true
   end
   show_view(view)
 end
@@ -451,7 +473,7 @@ local function saved_lists()
   return bucket.lists
 end
 
-local function refresh_gear_list()
+refresh_gear_list = function()
   if not setsPanel then
     return
   end
@@ -483,10 +505,43 @@ local function refresh_gear_list()
   if setsMore then
     if #lists > shown then
       setsMore:Show()
-      set_text(setsMore, "Showing " .. tostring(shown) .. " of " .. tostring(#lists) .. ". Scroll the list.")
+      set_text(setsMore, "Showing " .. tostring(shown) .. " of " .. tostring(#lists) .. ".")
     else
       setsMore:Hide()
     end
+  end
+end
+
+local function install_set_list_hooks()
+  local G = CrusaderStrikeGearSets
+  if not G or G._csGearTabListHook then
+    return
+  end
+  G._csGearTabListHook = true
+  local create, update, delete = G.CreateSet, G.UpdateSet, G.DeleteSet
+  function G.CreateSet(...)
+    local list, err = create(...)
+    if refresh_gear_list then
+      refresh_gear_list()
+    end
+    return list, err
+  end
+  function G.UpdateSet(...)
+    local list, err = update(...)
+    if refresh_gear_list then
+      refresh_gear_list()
+    end
+    return list, err
+  end
+  function G.DeleteSet(charDB, local_id)
+    local okDel, err = delete(charDB, local_id)
+    if okDel and state.localId == local_id then
+      state.localId = nil
+    end
+    if refresh_gear_list then
+      refresh_gear_list()
+    end
+    return okDel, err
   end
 end
 
@@ -795,10 +850,10 @@ local RANGED = {
   WARLOCK = weapon_set({ SUB.WAND }),
 }
 
--- Vanilla Forever 1.60.1: only warrior and rogue dual-wield. Hunters and
--- shamans do not (that comes later). One-hand INVTYPE_WEAPON stays out of
--- the off hand for those classes.
-local DUAL_WIELD = { WARRIOR = true, ROGUE = true }
+-- Off-hand weapons (INVTYPE_WEAPONOFFHAND) only: rogue, warrior, hunter.
+-- Shamans do not. Generic INVTYPE_WEAPON is never an off-hand item.
+local DUAL_WIELD = { WARRIOR = true, ROGUE = true, HUNTER = true }
+local SHIELD_CLASS = { WARRIOR = true, PALADIN = true, SHAMAN = true }
 local MAINHAND_ONLY_LOC = { INVTYPE_WEAPONMAINHAND = true, INVTYPE_2HWEAPON = true }
 local OFFHAND_ONLY_LOC = { INVTYPE_WEAPONOFFHAND = true, INVTYPE_SHIELD = true, INVTYPE_HOLDABLE = true }
 local RANGED_ONLY_LOC = {
@@ -1056,6 +1111,9 @@ local ARMOR_SLOTS = {
 }
 
 local function class_can_wear(classToken, subClassID)
+  if CrusaderStrikeGearEquip and CrusaderStrikeGearEquip.ArmorAllowed then
+    return CrusaderStrikeGearEquip.ArmorAllowed(classToken, subClassID)
+  end
   local set = classToken and ARMOR_ALLOWED[classToken]
   if not set then
     return true
@@ -1087,13 +1145,29 @@ local function item_equip_loc(itemId)
   return nil
 end
 
--- Where an equip location is allowed to land. Unknown locations are not blocked.
+-- Where an equip location is allowed to land.
+-- Off hand is fail-closed: missing loc, main-hand, two-hand, and generic
+-- one-hand (INVTYPE_WEAPON) never fit. Off-hand weapons only for
+-- rogue/warrior/hunter. Shields only for warrior/paladin/shaman.
 local function loc_fits_slot(equipLoc, slot, classToken)
-  if classToken == "DRUID" and slot == "off_hand" then
-    -- Druids do not dual-wield. Off hand is holdable items only:
-    -- no shields, no INVTYPE_WEAPONOFFHAND, no generic one-handers.
+  if slot == "off_hand" then
+    if type(equipLoc) ~= "string" or equipLoc == "" then
+      return false, "wrong_slot"
+    end
     if equipLoc == "INVTYPE_HOLDABLE" then
       return true
+    end
+    if equipLoc == "INVTYPE_SHIELD" then
+      if SHIELD_CLASS[classToken] then
+        return true
+      end
+      return false, "wrong_slot"
+    end
+    if equipLoc == "INVTYPE_WEAPONOFFHAND" then
+      if DUAL_WIELD[classToken] then
+        return true
+      end
+      return false, "wrong_slot"
     end
     return false, "wrong_slot"
   end
@@ -1208,6 +1282,12 @@ end
 -- reason is "class_weapon" or "dual_mainhand".
 function UI.CheckEquip(itemId, slot, previewSlots, classToken)
   classToken = classToken or UI.PlayerClassToken()
+  if CrusaderStrikeGearEquip and CrusaderStrikeGearEquip.CanPlace then
+    local placed, placeReason = CrusaderStrikeGearEquip.CanPlace(itemId, slot, classToken, previewSlots)
+    if not placed then
+      return false, placeReason
+    end
+  end
   local armor = armor_record(itemId)
   if armor and ARMOR_SLOTS[slot] and not class_can_wear(classToken, armor.subClassID) then
     return false, "class_armor"
@@ -1462,7 +1542,13 @@ function UI.SelectSet(localId)
   if type(list.slots) == "table" then
     for slot, itemId in pairs(list.slots) do
       if type(itemId) == "number" and CrusaderStrikeGearSlots.IsValidName(slot) then
-        state.previewSlots[slot] = itemId
+        local allowed = true
+        if CrusaderStrikeGearEquip and CrusaderStrikeGearEquip.CanPlace then
+          allowed = CrusaderStrikeGearEquip.CanPlace(itemId, slot, UI.PlayerClassToken(), list.slots)
+        end
+        if allowed then
+          state.previewSlots[slot] = itemId
+        end
       end
     end
   end
@@ -1662,10 +1748,8 @@ local function build_doll(parent)
   if dollFrame.ClearAllPoints then
     dollFrame:ClearAllPoints()
   end
-  -- Center on the CS tab content frame. The sidebar is attached to the doll's
-  -- right, so the pair is centered by shifting left half the sidebar width.
-  -- The relative frame is the tab content parent, never UIParent.
-  dollFrame:SetPoint("CENTER", parent, "CENTER", -math.floor(UI.SIDEBAR_WIDTH / 2), 0)
+  -- Same center as PaperDoll inside the CS tab content frame. No sidebar shift.
+  dollFrame:SetPoint("CENTER", parent, "CENTER", 0, 0)
   dollFrame:SetSize(PAPERDOLL_WIDTH, PAPERDOLL_HEIGHT)
   if dollFrame.EnableMouse then
     dollFrame:EnableMouse(true)
@@ -2049,11 +2133,22 @@ local function ensure_ui()
     panel._csSidebarPanel = true
   end
 
-  -- Pane 1: Gear Sets list
+  -- Pane 1: Gear Sets list. Rows are direct children of the pane so they
+  -- stay visible. The name field sits above the create button (they used to
+  -- share one row and overlap in the 177px pane).
   setsPanel = CreateFrame("Frame", "CrusaderStrikeGearSetsPanel", popout, "BackdropTemplate")
   anchor_sidebar_panel(setsPanel)
   apply_backdrop(setsPanel)
-  add_text(setsPanel, "GameFontNormal", "Gear Sets", 8, -8)
+  local setsTitle = add_text(setsPanel, "GameFontNormal", "Gear Sets", 8, -8)
+  if setsTitle.ClearAllPoints then
+    setsTitle:ClearAllPoints()
+  end
+  if setsTitle.SetPoint then
+    setsTitle:SetPoint("TOP", setsPanel, "TOP", 0, -8)
+  end
+  if setsTitle.SetJustifyH then
+    setsTitle:SetJustifyH("CENTER")
+  end
   setsEmpty = add_text(
     setsPanel,
     "GameFontHighlightSmall",
@@ -2065,18 +2160,12 @@ local function ensure_ui()
     setsEmpty:SetWidth(UI.POPOUT_INNER)
   end
 
-  local setsScroll = CreateFrame("ScrollFrame", "CrusaderStrikeGearSetsScroll", setsPanel, "UIPanelScrollFrameTemplate")
-  setsScroll:SetPoint("TOPLEFT", setsPanel, "TOPLEFT", UI.POPOUT_INSET, -70)
-  setsScroll:SetPoint("BOTTOMRIGHT", setsPanel, "BOTTOMRIGHT", -(UI.POPOUT_SCROLLBAR + 2), 40)
-  local setsChild = CreateFrame("Frame", "CrusaderStrikeGearSetsListChild", setsScroll)
-  setsChild:SetSize(UI.POPOUT_INNER, SET_LIST_ROWS * 24)
-  if setsScroll.SetScrollChild then
-    setsScroll:SetScrollChild(setsChild)
-  end
-  for i = 1, SET_LIST_ROWS do
-    local btn = CreateFrame("Button", nil, setsChild, "UIPanelButtonTemplate")
-    btn:SetSize(UI.POPOUT_INNER, 22)
-    btn:SetPoint("TOPLEFT", setsChild, "TOPLEFT", 0, -((i - 1) * 24))
+  local VISIBLE_SET_ROWS = 8
+  for i = 1, VISIBLE_SET_ROWS do
+    local btn = CreateFrame("Button", "CrusaderStrikeGearSetRow" .. i, setsPanel, "UIPanelButtonTemplate")
+    btn:SetHeight(22)
+    btn:SetPoint("TOPLEFT", setsPanel, "TOPLEFT", 12, -36 - ((i - 1) * 24))
+    btn:SetPoint("TOPRIGHT", setsPanel, "TOPRIGHT", -12, -36 - ((i - 1) * 24))
     btn:Hide()
     btn:SetScript("OnClick", function(self)
       local localId = self._localId
@@ -2086,23 +2175,27 @@ local function ensure_ui()
     end)
     setButtons[i] = btn
   end
-  setsMore = add_text(setsPanel, "GameFontDisableSmall", "", 8, -52)
+  setsPanel._csRows = setButtons
+  setsMore = add_text(setsPanel, "GameFontDisableSmall", "", 12, -36 - (VISIBLE_SET_ROWS * 24))
   setsMore:Hide()
 
-  nameBox = CreateFrame("EditBox", "CrusaderStrikeGearSetName", setsPanel, "InputBoxTemplate")
-  nameBox:SetSize(110, 20)
-  nameBox:SetPoint("BOTTOMLEFT", setsPanel, "BOTTOMLEFT", 12, 10)
-  nameBox:SetAutoFocus(false)
-  if nameBox.SetMaxLetters then
-    nameBox:SetMaxLetters(64)
-  end
   saveBtn = CreateFrame("Button", "CrusaderStrikeGearSaveSet", setsPanel, "UIPanelButtonTemplate")
-  saveBtn:SetSize(110, 22)
-  saveBtn:SetPoint("BOTTOMRIGHT", setsPanel, "BOTTOMRIGHT", -8, 8)
+  saveBtn:SetSize(140, 22)
+  saveBtn:SetPoint("BOTTOM", setsPanel, "BOTTOM", 0, 8)
   saveBtn:SetText("Create gear set")
   saveBtn:SetScript("OnClick", function()
     UI.SavePreviewAsSet(nameBox and nameBox.GetText and nameBox:GetText() or nil)
   end)
+
+  nameBox = CreateFrame("EditBox", "CrusaderStrikeGearSetName", setsPanel, "InputBoxTemplate")
+  nameBox:SetHeight(20)
+  nameBox:SetPoint("BOTTOMLEFT", setsPanel, "BOTTOMLEFT", 12, 36)
+  nameBox:SetPoint("BOTTOMRIGHT", setsPanel, "BOTTOMRIGHT", -12, 36)
+  nameBox:SetAutoFocus(false)
+  if nameBox.SetMaxLetters then
+    nameBox:SetMaxLetters(64)
+  end
+  install_set_list_hooks()
 
   -- Pane 2: Gear Browser
   browserPanel = CreateFrame("Frame", "CrusaderStrikeGearBrowserPanel", popout, "BackdropTemplate")
