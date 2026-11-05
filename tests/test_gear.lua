@@ -1493,6 +1493,29 @@ describe("platform#51/#52 error envelopes (#45)", function()
     eq(future, 120)
   end)
 
+  it("Retry-After is capped at MAX_RETRY_AFTER (3600) for both forms", function()
+    local now = 784111777
+    eq(GE.MAX_RETRY_AFTER, 3600)
+    eq(GE.ParseRetryAfter("Fri, 31 Dec 9999 23:59:59 GMT", now), 3600)
+    eq(GE.ParseRetryAfter("99999999999", now), 3600)
+    eq(GE.ParseRetryAfter(99999999999, now), 3600)
+    eq(GE.ParseRetryAfter("3600", now), 3600)
+    eq(GE.ParseRetryAfter("3601", now), 3600)
+    eq(GE.ParseRetryAfter("Thu, 01 Jan 1970 00:00:00 GMT", now), 0)
+    local rl = GE.ParseErrorEnvelope({}, {
+      http_status = 429, now = now,
+      headers = { ["Retry-After"] = "Fri, 31 Dec 9999 23:59:59 GMT" },
+    })
+    eq(rl.retry_after, 3600)
+  end)
+
+  it("ParseHttpDate rejects impossible days-in-month", function()
+    eq(GE.ParseHttpDate("Sat, 31 Feb 2024 00:00:00 GMT"), nil)
+    eq(GE.ParseHttpDate("Thu, 29 Feb 2023 00:00:00 GMT"), nil)
+    eq(GE.ParseHttpDate("Sat, 31 Apr 2024 00:00:00 GMT"), nil)
+    ok(GE.ParseHttpDate("Tue, 29 Feb 2000 00:00:00 GMT") ~= nil)
+  end)
+
   it("Retry-After header lookup is case-insensitive for any casing", function()
     for _, k in ipairs({ "Retry-After", "retry-after", "RETRY-AFTER", "Retry-after", "rEtRy-AfTeR", " retry-after " }) do
       local p = GE.ParseErrorEnvelope({}, { http_status = 503, headers = { [k] = "7" } })

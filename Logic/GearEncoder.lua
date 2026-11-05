@@ -76,7 +76,7 @@ local REJECT_MESSAGES = {
   schema = "Gear string schema/game version is not supported (need forever, schema 1).",
   character_mismatch = "This gear string is for a different character. Log into that character, or export again from the website for this one.",
   item_not_forever = "A gear set includes an item that is not a WoW Forever item. Remove it on the website and export again.",
-  list_limit_reached = "You already have 20 gear sets on this character. Delete one before importing more.",
+  list_limit_reached = "You already have 20 gear sets on this character. Delete one before creating or importing more.",
   validation = "Gear string failed validation (name, slots, levels, or ids).",
   encoder = "Gear encoder is unavailable.",
   -- until_level / create (Forever rules)
@@ -172,6 +172,11 @@ function GE.ParseHttpDate(v)
   if not m or d < 1 or d > 31 or hh > 23 or mm > 59 or ss > 60 then
     return nil
   end
+  local dim = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 }
+  local leap = (y % 4 == 0 and y % 100 ~= 0) or (y % 400 == 0)
+  if d > ((m == 2 and leap) and 29 or dim[m]) then
+    return nil
+  end
   return days_from_civil(y, m, d) * 86400 + hh * 3600 + mm * 60 + ss
 end
 
@@ -189,7 +194,9 @@ local function current_time()
 end
 
 -- Retry-After: delta-seconds (non-negative integer) or HTTP-date → seconds from now.
-local function parse_retry_after(v, now)
+GE.MAX_RETRY_AFTER = 3600
+
+local function parse_retry_after_raw(v, now)
   if type(v) == "number" and v == math.floor(v) and v >= 0 then
     return v
   end
@@ -216,6 +223,15 @@ local function parse_retry_after(v, now)
     end
   end
   return nil
+end
+
+-- Clamp to MAX_RETRY_AFTER so a far-future date or huge delta can't stall sync forever.
+local function parse_retry_after(v, now)
+  local r = parse_retry_after_raw(v, now)
+  if r and r > GE.MAX_RETRY_AFTER then
+    return GE.MAX_RETRY_AFTER
+  end
+  return r
 end
 GE.ParseRetryAfter = parse_retry_after
 
@@ -451,7 +467,7 @@ function GE.ParseErrorEnvelope(input, meta)
       .. " Try again in " .. tostring(retry_after) .. " seconds."
   elseif code == "list_limit_reached" and limit ~= nil then
     message = "You already have " .. tostring(limit)
-      .. " gear sets on this character. Delete one before importing more."
+      .. " gear sets on this character. Delete one before creating or importing more."
   end
 
   return {
