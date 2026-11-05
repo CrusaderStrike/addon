@@ -5,9 +5,9 @@
   C_CombatLog.GetCurrentEventInfo are NOT in the Forever global API for addons
   (moved to the secure environment in 12.0; see docs/sources.md). So:
     * honorable kills come from PLAYER_PVP_KILLS_CHANGED (unitTarget payload);
-    * killing blow vs assist, pet-only kills and the killer on death use the
+    * pet-only kill exclusion and the killer on death use the
       combat log ONLY when CombatLogGetCurrentEventInfo is callable (pcall), and
-      otherwise degrade gracefully (kill recorded as "kill", killer from target).
+      otherwise degrade gracefully (HK credit = "kill", killer from target).
 ]]
 
 CrusaderStrike = CrusaderStrike or {}
@@ -134,11 +134,10 @@ function PL.OnHonorableKill(unitTarget)
   ev.honorable = true
   ev.result = "kill"
   if PL.HasCombatLog() and ev.opponentGUID then
+    -- Only used to drop pet-only killing blows; HK credit is always recorded as "kill".
     local kb = state.killingBlows[ev.opponentGUID]
     if kb and (now() - kb.t) <= KB_WINDOW_SEC then
       ev.killerIsPet = kb.byPet
-    else
-      ev.result = "assist"
     end
   end
   return record_world(ev)
@@ -150,8 +149,10 @@ function PL.OnPlayerDead()
   if a and (now() - a.t) <= ATTACKER_WINDOW_SEC then
     ev = opponent_from_guid(a.guid, a.name)
     ev.opponentIsPet = a.isPet
+    ev.killerSource = "combat_log"
   elseif UnitIsPlayer("target") and UnitIsEnemy and UnitIsEnemy("player", "target") then
     ev = opponent_from_unit("target") -- no combat log: best effort from target
+    ev.killerSource = "target"
   else
     return nil, "no_player_killer"
   end
@@ -161,6 +162,15 @@ function PL.OnPlayerDead()
   return record_world(ev)
 end
 
+local function prune_killing_blows(t)
+  for guid, kb in pairs(state.killingBlows) do
+    if (t - kb.t) > KB_WINDOW_SEC then
+      state.killingBlows[guid] = nil
+    end
+  end
+end
+PL._pruneKillingBlows = prune_killing_blows
+
 local function on_cleu()
   local ok, _, subevent, _, sourceGUID, sourceName, sourceFlags, _, destGUID =
     pcall(CombatLogGetCurrentEventInfo)
@@ -169,7 +179,9 @@ local function on_cleu()
   local pet = UnitGUID and UnitGUID("pet")
   if subevent == "PARTY_KILL" and destGUID and destGUID:match("^Player%-")
     and (sourceGUID == me or (pet and sourceGUID == pet)) then
-    state.killingBlows[destGUID] = { t = now(), byPet = sourceGUID ~= me }
+    local t = now()
+    prune_killing_blows(t)
+    state.killingBlows[destGUID] = { t = t, byPet = sourceGUID ~= me }
   elseif destGUID == me and sourceGUID and subevent:match("_DAMAGE$") then
     local isPlayer = sourceGUID:match("^Player%-") ~= nil
     local isPet = sourceGUID:match("^Pet%-") ~= nil
@@ -227,9 +239,11 @@ function PL.CheckBattleground()
     P.StartBattleground(db, ident(), {
       mapId = mapId, mapName = name, faction = UnitFactionGroup("player"), now = now(),
     })
-  elseif db.activeBattleground then
-    -- Left early, deserted, or logged back in after a disconnect.
-    local rec = P.LeaveBattleground(db, db.activeBattleground.lastSeenAt or now())
+  elseif db.activeBattleground or db.finishedBattleground then
+    -- Left early, deserted, or logged back in after a disconnect (no-op for a
+    -- finished match other than clearing the finished marker).
+    local active = db.activeBattleground
+    local rec = P.ExitedBattleground(db, active and active.lastSeenAt or now())
     if rec then CS.Debug("BG left early: " .. rec.addon_pvp_id) end
   end
 end
@@ -283,8 +297,12 @@ end
 
 local frame = CreateFrame("Frame", "CrusaderStrikePvpLogFrame")
 for event in pairs(handlers) do
-  frame:RegisterEvent(event)
+  -- CLEU payload isn't readable by addons on Forever 1.60.1; only listen when it is.
+  if event ~= "COMBAT_LOG_EVENT_UNFILTERED" or PL.HasCombatLog() then
+    frame:RegisterEvent(event)
+  end
 end
+PL._frame = frame
 frame:SetScript("OnEvent", function(_, event, ...)
   PL.HandleEvent(event, ...)
 end)

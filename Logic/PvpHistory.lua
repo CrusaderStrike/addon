@@ -17,10 +17,21 @@ P.DUEL_GRACE_SEC = 3
 
 local SEP = "|"
 
-local VALID_WORLD_RESULTS = { kill = true, death = true, assist = true }
+-- No "assist": Forever 1.60.1 addons can't read the combat log, so killing blow
+-- vs assist is unknowable. Re-add if a later build makes the payload readable.
+local VALID_WORLD_RESULTS = { kill = true, death = true }
+local VALID_KILLER_SOURCES = { target = true, combat_log = true }
 
 -- Faction index used by the scoreboard / GetBattlefieldWinner: 0 Horde, 1 Alliance.
-local FACTION_INDEX = { Horde = 0, Alliance = 1 }
+local FACTION_INDEX = { horde = 0, alliance = 1 }
+
+-- Platform contract (OpenAPI Character.faction): "alliance" | "horde" | nil.
+function P.NormalizeFaction(f)
+  if type(f) ~= "string" then return nil end
+  f = f:lower()
+  if f == "alliance" or f == "horde" then return f end
+  return nil
+end
 P.WINNER_DRAW = 255
 
 function P.Ensure(charDB)
@@ -28,21 +39,22 @@ function P.Ensure(charDB)
   local pvp = charDB.pvp
   pvp.world = pvp.world or {}
   pvp.battlegrounds = pvp.battlegrounds or {}
+  -- pvp.finishedBattleground = { addon_pvp_id, mapId } while still inside an ended match
   pvp.seq = pvp.seq or 0
   return pvp
 end
 
--- World id: realm|character|W|timeUnix|result|opponent|seq
+-- World id: realm|character|W|timeUnix|result|seq
 -- seq is a per-character counter so two events in the same second never collide;
 -- once written the id never changes, so a sync can deduplicate on it.
-function P.MakeWorldId(realm, character, timeUnix, result, opponent, seq)
+-- (No opponent name in the id: keeps other players' names out of indexed keys.)
+function P.MakeWorldId(realm, character, timeUnix, result, seq)
   assert(realm and realm ~= "", "realm required")
   assert(character and character ~= "", "character required")
   assert(type(timeUnix) == "number", "timeUnix must be number")
   return table.concat({
     tostring(realm), tostring(character), "W",
-    tostring(math.floor(timeUnix)), tostring(result),
-    tostring(opponent or "?"), tostring(seq or 0),
+    tostring(math.floor(timeUnix)), tostring(result), tostring(seq or 0),
   }, SEP)
 end
 
@@ -107,18 +119,20 @@ function P.RecordWorld(pvp, ident, ev, ctx)
   local t = math.floor(ctx.now)
   local rec = {
     v = P.RECORD_VERSION,
-    addon_pvp_id = P.MakeWorldId(ident.realm, ident.character, t, ev.result, ev.opponentName, pvp.seq),
+    addon_pvp_id = P.MakeWorldId(ident.realm, ident.character, t, ev.result, pvp.seq),
     time = t,
     zone = ctx.zone,
     subzone = (ctx.subzone ~= "" and ctx.subzone) or nil,
     result = ev.result,
     honorable = ev.honorable and true or false,
+    -- deaths only: how the killer was identified ("target" | "combat_log"), nil = unknown
+    killer_source = (ev.result == "death" and VALID_KILLER_SOURCES[ev.killerSource]) and ev.killerSource or nil,
     opponent = {
       name = ev.opponentName,
       realm = ev.opponentRealm,
       class = ev.opponentClass,
       level = ev.opponentLevel,
-      faction = ev.opponentFaction,
+      faction = P.NormalizeFaction(ev.opponentFaction),
     },
     synced = false,
   }
@@ -128,7 +142,13 @@ function P.RecordWorld(pvp, ident, ev, ctx)
 end
 
 -- info: { mapId, mapName, faction ("Horde"/"Alliance"), now }
+-- Returns the active record, or nil when this instance's match already finished
+-- (pvp.finishedBattleground marker, cleared by P.ExitedBattleground).
 function P.StartBattleground(pvp, ident, info)
+  local done = pvp.finishedBattleground
+  if done and done.mapId == info.mapId then
+    return nil
+  end
   local existing = pvp.activeBattleground
   if existing and existing.mapId == info.mapId then
     return existing -- /reload inside the same match resumes it
@@ -142,7 +162,7 @@ function P.StartBattleground(pvp, ident, info)
     addon_pvp_id = P.MakeBattlegroundId(ident.realm, ident.character, t, info.mapId),
     mapId = info.mapId,
     mapName = info.mapName,
-    faction = info.faction,
+    faction = P.NormalizeFaction(info.faction),
     startedAt = t,
     endedAt = nil,
     durationSec = nil,
@@ -180,6 +200,12 @@ local function finalize(pvp, bg, endedAt, result, winner)
   return bg
 end
 
+-- Called when the player is no longer inside a BG instance.
+function P.ExitedBattleground(pvp, endedAt)
+  pvp.finishedBattleground = nil
+  return P.LeaveBattleground(pvp, endedAt)
+end
+
 -- winner: GetBattlefieldWinner() / C_PvP.GetActiveMatchWinner() (0 Horde, 1 Alliance, 255 draw).
 function P.FinishBattleground(pvp, winner, endedAt, durationSec)
   local bg = pvp.activeBattleground
@@ -198,6 +224,9 @@ function P.FinishBattleground(pvp, winner, endedAt, durationSec)
     result = "loss"
   end
   local rec = finalize(pvp, bg, endedAt, result, winner)
+  -- Stay "finished" for this instance until the player leaves it, so post-end
+  -- scoreboard/status events (and a /reload) can't open or close a second record.
+  pvp.finishedBattleground = { addon_pvp_id = rec.addon_pvp_id, mapId = rec.mapId }
   if durationSec then
     rec.durationSec = math.floor(durationSec)
   end
@@ -232,11 +261,10 @@ end
 
 function P.Summary(pvp, recentN)
   recentN = recentN or 5
-  local s = { kills = 0, deaths = 0, assists = 0, wins = 0, losses = 0, left = 0, draws = 0, recent = {} }
+  local s = { kills = 0, deaths = 0, wins = 0, losses = 0, left = 0, draws = 0, recent = {} }
   for _, r in ipairs(pvp.world or {}) do
     if r.result == "kill" then s.kills = s.kills + 1
-    elseif r.result == "death" then s.deaths = s.deaths + 1
-    elseif r.result == "assist" then s.assists = s.assists + 1 end
+    elseif r.result == "death" then s.deaths = s.deaths + 1 end
   end
   for _, b in ipairs(pvp.battlegrounds or {}) do
     if b.result == "win" then s.wins = s.wins + 1
@@ -254,7 +282,7 @@ end
 function P.FormatSummary(pvp, recentN)
   local s = P.Summary(pvp, recentN)
   local lines = {
-    string.format("World PvP: %d kills, %d assists, %d deaths", s.kills, s.assists, s.deaths),
+    string.format("World PvP: %d kills, %d deaths", s.kills, s.deaths),
     string.format("Battlegrounds: %d W / %d L (%d left early%s)", s.wins, s.losses, s.left,
       s.draws > 0 and (", " .. s.draws .. " draws") or ""),
   }

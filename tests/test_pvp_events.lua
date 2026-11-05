@@ -1,5 +1,6 @@
 -- Event-level tests: PvpLog.lua driven by mocked WoW events (Forever API surface).
 local root = package.path:match("([^;]*)/Logic/%?.lua") or "."
+_G.CombatLogGetCurrentEventInfo = nil -- not exposed to addons in Forever 1.60.1
 dofile(root .. "/Core.lua")
 dofile(root .. "/PvpLog.lua")
 local CS = CrusaderStrike
@@ -36,7 +37,6 @@ _G.C_PvP = {
 _G.GetBattlefieldWinner = function() return winner end
 _G.GetBattlefieldInstanceRunTime = function() return 0 end
 _G.IsActiveBattlefieldArena = function() return false end
-_G.CombatLogGetCurrentEventInfo = nil -- not exposed to addons in Forever 1.60.1
 
 local function db() return CrusaderStrikeCharDB.pvp end
 
@@ -48,7 +48,7 @@ describe("pvp events (mocked Forever client)", function()
     eq(#db().world, 1)
     local r = db().world[1]
     eq(r.result, "kill"); eq(r.honorable, true); eq(r.opponent.name, "Grukk")
-    eq(r.opponent.faction, "Horde"); eq(r.subzone, "Tarren Mill")
+    eq(r.opponent.faction, "horde"); eq(r.subzone, "Tarren Mill")
   end)
 
   it("death to an enemy player", function()
@@ -57,6 +57,7 @@ describe("pvp events (mocked Forever client)", function()
     PL.HandleEvent("PLAYER_DEAD")
     eq(db().world[1].result, "death")
     eq(db().world[1].opponent.name, "Grukk")
+    eq(db().world[1].killer_source, "target")
   end)
 
   it("PvE death is not recorded", function()
@@ -94,8 +95,49 @@ describe("pvp events (mocked Forever client)", function()
     T = T + 900
     PL.HandleEvent("PVP_MATCH_COMPLETE", 1, 900)
     local r = db().battlegrounds[1]
-    eq(r.result, "win"); eq(r.mapId, 489); eq(r.faction, "Alliance")
+    eq(r.result, "win"); eq(r.mapId, 489); eq(r.faction, "alliance")
     eq(r.durationSec, 900); eq(r.stats.honor, 200)
+  end)
+
+  it("one match produces exactly one record (post-end refresh, /reload, exit)", function()
+    reset()
+    inst = { true, "pvp" }
+    PL.HandleEvent("PLAYER_ENTERING_WORLD")
+    scoreRow = { killingBlows = 2, honorableKills = 5, deaths = 1, honorGained = 120 }
+    winner = 0
+    PL.HandleEvent("PVP_MATCH_COMPLETE", 0, 600)
+    eq(#db().battlegrounds, 1)
+    local id = db().battlegrounds[1].addon_pvp_id
+    -- scoreboard stays up: more score/status/zone events while still inside
+    PL.HandleEvent("UPDATE_BATTLEFIELD_SCORE")
+    PL.HandleEvent("UPDATE_BATTLEFIELD_STATUS", 1)
+    PL.HandleEvent("ZONE_CHANGED_NEW_AREA")
+    PL.HandleEvent("UPDATE_BATTLEFIELD_SCORE")
+    -- /reload after the end: SavedVariables keep the finished marker
+    local saved = CrusaderStrikeCharDB
+    CrusaderStrikeCharDB = saved
+    PL.HandleEvent("PLAYER_ENTERING_WORLD")
+    PL.HandleEvent("UPDATE_BATTLEFIELD_SCORE")
+    eq(db().activeBattleground, nil)
+    -- leave the instance
+    inst = { false, nil }
+    PL.HandleEvent("PLAYER_ENTERING_WORLD")
+    eq(#db().battlegrounds, 1)
+    eq(db().battlegrounds[1].addon_pvp_id, id)
+    eq(db().battlegrounds[1].result, "loss")
+    eq(db().finishedBattleground, nil)
+  end)
+
+  it("CLEU is not registered when the combat log is unreadable", function()
+    eq(PL._frame._events.COMBAT_LOG_EVENT_UNFILTERED, nil)
+    ok(PL._frame._events.PLAYER_PVP_KILLS_CHANGED, "HK event registered")
+  end)
+
+  it("killing-blow cache is pruned by age", function()
+    PL._state.killingBlows = { old = { t = T - 100 }, fresh = { t = T } }
+    PL._pruneKillingBlows(T)
+    eq(PL._state.killingBlows.old, nil)
+    ok(PL._state.killingBlows.fresh ~= nil, "fresh kept")
   end)
 
   it("BG left early (or disconnect then relog outside) is left with partial stats", function()
