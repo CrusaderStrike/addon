@@ -505,3 +505,164 @@ describe("gear sets validate-before-mutate (#27)", function()
     eq(import_db.gearSets.character_id, "char-null-role")
   end)
 end)
+
+describe("Forever item link field order (#29)", function()
+  it("documents ITEM_LINK_FIELDS and ParseItemLink via GearEncoder", function()
+    local F = CrusaderStrikeGearEncoder.ITEM_LINK_FIELDS
+    eq(F.item_id, 1)
+    eq(F.enchant_id, 2)
+    eq(F.suffix_id, 7)
+    local p = CrusaderStrikeGearEncoder.ParseItemLink(
+      "|cffffffff|Hitem:14145:2564:0:0:0:0:123:0:0|h[Blade]|h|r"
+    )
+    eq(p.item_id, 14145)
+    eq(p.enchant_id, 2564)
+    -- EquippedGear delegates to GearEncoder
+    local p2 = CrusaderStrikeEquippedGear.ParseItemLink(
+      "|Hitem:19019:0:0:0:0:0:0:0:0|h[Thunderfury]|h"
+    )
+    eq(p2.item_id, 19019)
+    eq(p2.enchant_id, 0)
+  end)
+
+  it("RejectMessage covers character_mismatch list_limit_reached item_not_forever", function()
+    local GE = CrusaderStrikeGearEncoder
+    local m1 = GE.RejectMessage("character_mismatch")
+    ok(m1:find("different character", 1, true) ~= nil, m1)
+    local m2 = GE.RejectMessage("list_limit_reached")
+    ok(m2:find("20", 1, true) ~= nil, m2)
+    local m3 = GE.RejectMessage("item_not_forever")
+    ok(m3:find("Forever", 1, true) ~= nil, m3)
+    ok(GE.RejectMessage("bad_checksum"):find("checksum", 1, true) ~= nil)
+  end)
+end)
+
+describe("web-import CSGEAR1 fixture (#29)", function()
+  local function read_fixture()
+    local path = "tests/fixtures/web_import_csgear1.txt"
+    -- resolve relative to addon root (runner cwd) or beside this file
+    local f = io.open(path, "r")
+    if not f then
+      local src = debug.getinfo(1, "S").source
+      local dir = src:match("^@(.*/)") or ""
+      f = io.open(dir .. "../fixtures/web_import_csgear1.txt", "r")
+    end
+    assert(f, "missing tests/fixtures/web_import_csgear1.txt")
+    local s = f:read("*a")
+    f:close()
+    return (s:gsub("%s+$", ""))
+  end
+
+  it("decodes web re-import string with local_id→id and no equipped", function()
+    local env = read_fixture()
+    ok(env:sub(1, 8) == "CSGEAR1:", env:sub(1, 20))
+    local payload, err = CrusaderStrikeGearEncoder.Decode(env, {
+      expect_realm = "CrusaderStrike",
+      expect_character = "Snipy",
+    })
+    ok(payload ~= nil, err)
+    eq(payload.character_id, "char_01JACKET9FOREVERSYNC0001")
+    -- Import strings omit equipped (or empty)
+    ok(payload.equipped == nil or next(payload.equipped) == nil
+      or (type(payload.equipped) == "table"), "equipped present or omitted")
+    -- Prefer: fixture encodes without equipped key; FromJson may omit it
+    eq(payload.equipped, nil)
+    eq(#payload.lists, 2)
+    eq(payload.lists[1].local_id, "a3f09c12")
+    eq(payload.lists[1].id, "9c2e4f6a-1b3d-4e5f-8a7b-6c5d4e3f2a10")
+    eq(payload.lists[1].edited_in, "web")
+    eq(payload.lists[2].id, "7b1e2c4a-0d1f-4e8a-9c3b-2a6f5e4d3c21")
+    eq(payload.rejects[1].code, "item_not_forever")
+    eq(payload.rejects[1].item_id, 19019)
+  end)
+
+  it("ApplyImport links local_id to server id from web fixture", function()
+    local db = {
+      gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} },
+    }
+    -- Local set created in game with same local_id, no server id yet
+    local local_list = CrusaderStrikeGearSets.CreateSet(db, {
+      name = "Pre-BiS 50",
+      type = "leveling",
+      until_level = 50,
+    }, 25)
+    -- Force the fixture local_id
+    local_list.local_id = "a3f09c12"
+    local_list.edited_at = "2026-11-05T07:00:00Z"
+    local_list.slots.head = 1
+
+    local env = read_fixture()
+    local payload = CrusaderStrikeGearEncoder.Decode(env)
+    ok(payload ~= nil)
+    payload.equipped = nil
+    local applied, aerr = CrusaderStrikeGearSets.ApplyImport(db, payload)
+    ok(applied, aerr)
+    eq(db.gearSets.character_id, "char_01JACKET9FOREVERSYNC0001")
+    local merged = CrusaderStrikeGearSets.FindByLocalId(db, "a3f09c12")
+    ok(merged ~= nil)
+    eq(merged.id, "9c2e4f6a-1b3d-4e5f-8a7b-6c5d4e3f2a10")
+    eq(merged.slots.head, 14145)
+    -- Second list added from web
+    local tank = CrusaderStrikeGearSets.FindById(db, "7b1e2c4a-0d1f-4e8a-9c3b-2a6f5e4d3c21")
+    ok(tank ~= nil)
+    eq(tank.local_id, "5e7d1b90")
+  end)
+
+  it("links id even when local edited_at is newer", function()
+    local db = {
+      gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} },
+    }
+    local local_list = CrusaderStrikeGearSets.CreateSet(db, {
+      name = "Pre-BiS 50",
+      type = "leveling",
+      until_level = 50,
+    }, 25)
+    local_list.local_id = "a3f09c12"
+    local_list.edited_at = "2026-11-05T09:00:00Z" -- newer than web fixture
+    local_list.slots.head = 777
+    local env = read_fixture()
+    local payload = CrusaderStrikeGearEncoder.Decode(env)
+    payload.equipped = nil
+    -- Only first list for this case
+    payload.lists = { payload.lists[1] }
+    payload.rejects = nil
+    local applied, aerr = CrusaderStrikeGearSets.ApplyImport(db, payload)
+    ok(applied, aerr)
+    local merged = CrusaderStrikeGearSets.FindByLocalId(db, "a3f09c12")
+    eq(merged.id, "9c2e4f6a-1b3d-4e5f-8a7b-6c5d4e3f2a10")
+    eq(merged.slots.head, 777) -- local wins content
+  end)
+
+  it("does not wipe existing server id when web sends id null", function()
+    local db = {
+      gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} },
+    }
+    local local_list = CrusaderStrikeGearSets.CreateSet(db, {
+      name = "KeepId",
+      type = "max_level",
+    }, 60)
+    local_list.id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    local_list.edited_at = "2026-11-05T06:00:00Z"
+    local payload = {
+      lists = {
+        {
+          id = nil,
+          local_id = local_list.local_id,
+          name = "KeepId",
+          type = "max_level",
+          until_level = nil,
+          edited_at = "2026-11-05T07:00:00Z",
+          edited_in = "web",
+          slots = { chest = 1 },
+          removes = {},
+        },
+      },
+      deleted_lists = {},
+    }
+    local applied = CrusaderStrikeGearSets.ApplyImport(db, payload)
+    ok(applied)
+    local merged = CrusaderStrikeGearSets.FindByLocalId(db, local_list.local_id)
+    eq(merged.id, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+    eq(merged.slots.chest, 1)
+  end)
+end)

@@ -494,7 +494,10 @@ function G.ApplyImport(charDB, payload)
         if rerr then
           return false, rerr
         end
-        existing.id = incoming.id ~= nil and incoming.id or existing.id
+        -- Never wipe a known server id with null; web re-import links local_id→id.
+        if incoming.id ~= nil then
+          existing.id = incoming.id
+        end
         existing.local_id = incoming.local_id or existing.local_id
         existing.name = incoming.name
         existing.type = incoming.type
@@ -510,9 +513,12 @@ function G.ApplyImport(charDB, payload)
         existing.slots = apply_removes_to_slots(existing.slots, incoming.removes)
         existing.removes = {}
       else
-        -- keep local; still link server id if provided
-        if incoming.id and not existing.id then
+        -- keep local; still link server id when web echoes local_id→id
+        if incoming.id ~= nil then
           existing.id = incoming.id
+        end
+        if incoming.local_id and not existing.local_id then
+          existing.local_id = incoming.local_id
         end
       end
     end

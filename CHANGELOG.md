@@ -8,8 +8,11 @@ All notable changes to CrusaderStrike (World of Warcraft: Forever only).
 - **CSGEAR1 gear sets** (`/cs gearsets`, `/cs import`, gear line on `/cs export`): named leveling / max_level sets with copy-paste sync, read-only equipped gear scan, and an armory-style in-game editor. SavedVariables schema v4 (`CrusaderStrikeCharDB.gearSets`). Cap 20 active sets; over-cap reason code `list_limit_reached`.
 - Equipped gear is read via `GetInventoryItemLink` (slots 1–19) on demand and on `PLAYER_EQUIPMENT_CHANGED` (debounced). Export includes equipped; import never writes it.
 
+### Changed
+- **CSGEAR1 round-trip hardening (#29):** `GearEncoder` owns Forever `|Hitem:` field-order docs + `ParseItemLink`; clear in-game reject messages for `character_mismatch` / `list_limit_reached` / `item_not_forever`; optional `rejects[]` on web re-import strings; `local_id→id` link never wiped by null; web-import fixture under `tests/fixtures/`.
+
 ### Notes
-- Item-link field order (enchant/suffix) still needs in-game confirmation on Forever 1.60.1; parsing is defensive (`|Hitem:itemId:enchantId:…|`).
+- Item-link field order is documented best-effort in `GearEncoder.ITEM_LINK_FIELDS` (`[1]=item_id`, `[2]=enchant_id`, `[7]=suffix_id`, …). **Confirm in game on Forever 1.60.1** as part of addon#26 morning check.
 - CSRUN1 run export is unchanged.
 
 ## 0.2.0 (WoW Forever)

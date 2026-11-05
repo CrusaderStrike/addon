@@ -1,7 +1,8 @@
 --[[
   Read-only equipped gear scan for CSGEAR1.
-  Parses item/enchant ids only from |Hitem:…|h; never trusts display names.
-  Field order on Forever 1.60.1 still needs in-game confirmation; parse defensively.
+  Parses item/enchant ids only from |Hitem:…|h via GearEncoder.ParseItemLink;
+  never trusts display names. Field order: see GearEncoder.ITEM_LINK_FIELDS
+  (Forever 1.60.1 best-effort; confirm in game — addon#26).
 ]]
 
 CrusaderStrikeEquippedGear = CrusaderStrikeEquippedGear or {}
@@ -10,30 +11,12 @@ local EG = CrusaderStrikeEquippedGear
 local cache = { at = 0, map = {} }
 local DEBOUNCE_SEC = 1
 
--- |Hitem:itemId:enchantId:…|h[Name]|h
--- Classic/Forever: [1]=item_id, [2]=enchant_id (confirm in game).
 function EG.ParseItemLink(link)
-  if type(link) ~= "string" then
-    return nil
+  local GE = CrusaderStrikeGearEncoder
+  if GE and GE.ParseItemLink then
+    return GE.ParseItemLink(link)
   end
-  local body = link:match("|Hitem:([^|]+)|h")
-  if not body then
-    return nil
-  end
-  local parts = {}
-  for part in (body .. ":"):gmatch("([^:]*):") do
-    parts[#parts + 1] = part
-  end
-  local itemId = tonumber(parts[1])
-  if not itemId or itemId < 1 or itemId ~= math.floor(itemId) or itemId > 2147483647 then
-    return nil
-  end
-  local out = { item_id = itemId }
-  local enchant = tonumber(parts[2])
-  if enchant and enchant >= 0 and enchant == math.floor(enchant) then
-    out.enchant_id = enchant
-  end
-  return out
+  return nil
 end
 
 function EG.ScanNow()

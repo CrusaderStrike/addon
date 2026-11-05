@@ -71,7 +71,7 @@ fire in-game — see [docs/forever-event-check.md](docs/forever-event-check.md).
 
 ## Gear sets (`/cs gearsets`, CSGEAR1)
 
-Named leveling / max_level gear sets sync by copy-paste (`CSGEAR1:`). Equipped gear is read-only (export only). Open `/cs gearsets` to create and edit sets; `/cs import <CSGEAR1…>` applies a website export. Cap: 20 active sets (`list_limit_reached`). Below level 60 new sets default to leveling with an editable Up to level; at 60 only max_level sets can be created. Schema lives with Platform/Web (CSGEAR1 v1).
+Named leveling / max_level gear sets sync by copy-paste (`CSGEAR1:`). Equipped gear is read-only (export only). Open `/cs gearsets` to create and edit sets; `/cs import <CSGEAR1…>` applies a website export. Cap: 20 active sets (`list_limit_reached`). Below level 60 new sets default to leveling with an editable Up to level; at 60 only max_level sets can be created. Import prints clear messages for `character_mismatch`, `list_limit_reached`, and `item_not_forever`. Schema lives with Platform/Web (CSGEAR1 v1); Forever `|Hitem:` field order is documented best-effort in `GearEncoder` (confirm in game — see `docs/forever-event-check.md`).
 
 ## Loot browser + wish lists (`/cs loot`)
 

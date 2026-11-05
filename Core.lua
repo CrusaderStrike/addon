@@ -255,22 +255,39 @@ SlashCmdList["CRUSADERSTRIKE"] = function(msg)
     end
     local realm = (GetNormalizedRealmName and GetNormalizedRealmName()) or (GetRealmName and GetRealmName()) or ""
     local character = (UnitName and UnitName("player")) or ""
-    local payload, err = CrusaderStrikeGearEncoder.Decode(raw, {
+    local GE = CrusaderStrikeGearEncoder
+    local payload, err = GE.Decode(raw, {
       expect_realm = realm,
       expect_character = character,
     })
     if not payload then
-      CS.Print("import rejected: " .. tostring(err))
+      CS.Print(GE.RejectMessage(err))
       return
     end
     -- Never apply equipped from import (strip if present).
     payload.equipped = nil
     local ok, aerr = CrusaderStrikeGearSets.ApplyImport(CS.GetCharDB(), payload)
     if not ok then
-      CS.Print("import rejected: " .. tostring(aerr))
+      CS.Print(GE.RejectMessage(aerr))
       return
     end
     CS.Print("Imported gear sets (" .. tostring(#(payload.lists or {})) .. " lists)")
+    -- Web may echo server rejections (e.g. item_not_forever) alongside applied lists.
+    if type(payload.rejects) == "table" then
+      for _, r in ipairs(payload.rejects) do
+        local msg = r.message
+        if type(msg) ~= "string" or msg == "" then
+          msg = GE.RejectMessage(r.code)
+        end
+        if r.item_id then
+          msg = msg .. " (item " .. tostring(r.item_id) .. ")"
+        end
+        if r.slot then
+          msg = msg .. " [" .. tostring(r.slot) .. "]"
+        end
+        CS.Print("Import note: " .. msg)
+      end
+    end
   else
     CS.Print("Commands: /cs loot | /cs wishlist | /cs gearsets | /cs import <CSGEAR1> | /cs export [key] | /cs status | /cs pvp | /cs debug [on|off] | /cs debug simulate kill [boss]|death [unit] | /cs debug events [on|off|dump]")
   end

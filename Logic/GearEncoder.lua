@@ -1,6 +1,19 @@
 --[[
   CSGEAR1 encode/decode + validation (pure Lua 5.1).
   Envelope: CSGEAR1:<base64(compact UTF-8 JSON, sorted keys)>|c=<8 hex FNV-1a>
+
+  Forever 1.60.1 |Hitem:| field order (best-effort; confirm in game — addon#26):
+    [1] item_id
+    [2] enchant_id
+    [3] gem1 / jewel1 (often 0 on Forever)
+    [4] gem2
+    [5] gem3
+    [6] gem4
+    [7] suffix_id (random-property suffix; 0 if none)
+    [8] unique_id / creation context
+    [9] link_level (optional; may be absent on short links)
+  Parsing is defensive: only [1] and [2] are required for CSGEAR1 equipped export.
+  Suffix/gems are documented here so #26 can confirm positions without guessing.
 ]]
 
 CrusaderStrikeGearEncoder = CrusaderStrikeGearEncoder or {}
@@ -12,6 +25,72 @@ local JSON_MAX = 16 * 1024
 local REGION_ALLOW = {
   us = true, eu = true, kr = true, tw = true, cn = true,
 }
+
+-- Best-effort Forever |Hitem:| indices (1-based). Confirm in game (addon#26).
+GE.ITEM_LINK_FIELDS = {
+  item_id = 1,
+  enchant_id = 2,
+  gem1 = 3,
+  gem2 = 4,
+  gem3 = 5,
+  gem4 = 6,
+  suffix_id = 7,
+  unique_id = 8,
+  link_level = 9,
+}
+
+--[[
+  Parse a WoW item link / chat hyperlink. Returns {item_id, enchant_id?} or nil.
+  Never trusts display names. Suffix/gems are not exported in CSGEAR1 v1.
+]]
+function GE.ParseItemLink(link)
+  if type(link) ~= "string" then
+    return nil
+  end
+  local body = link:match("|Hitem:([^|]+)|h")
+  if not body then
+    return nil
+  end
+  local parts = {}
+  for part in (body .. ":"):gmatch("([^:]*):") do
+    parts[#parts + 1] = part
+  end
+  local itemId = tonumber(parts[GE.ITEM_LINK_FIELDS.item_id])
+  if not itemId or itemId < 1 or itemId ~= math.floor(itemId) or itemId > 2147483647 then
+    return nil
+  end
+  local out = { item_id = itemId }
+  local enchant = tonumber(parts[GE.ITEM_LINK_FIELDS.enchant_id])
+  if enchant and enchant >= 0 and enchant == math.floor(enchant) then
+    out.enchant_id = enchant
+  end
+  return out
+end
+
+-- Player-facing reject / reason strings for /cs import and gear UI.
+local REJECT_MESSAGES = {
+  bad_prefix = "Not a CSGEAR1 string (wrong prefix).",
+  bad_checksum = "Gear string checksum failed — copy the whole CSGEAR1 line.",
+  too_large = "Gear string is too large to import.",
+  bad_json = "Gear string is corrupted or not valid JSON.",
+  schema = "Gear string schema/game version is not supported (need forever, schema 1).",
+  character_mismatch = "This gear string is for a different character. Log into that character, or export again from the website for this one.",
+  item_not_forever = "A gear set includes an item that is not a WoW Forever item. Remove it on the website and export again.",
+  list_limit_reached = "You already have 20 gear sets on this character. Delete one before importing more.",
+  validation = "Gear string failed validation (name, slots, levels, or ids).",
+  encoder = "Gear encoder is unavailable.",
+}
+
+function GE.RejectMessage(code)
+  if code == nil then
+    return "Import rejected."
+  end
+  local msg = REJECT_MESSAGES[code]
+  if msg then
+    return msg
+  end
+  return "Import rejected (" .. tostring(code) .. ")."
+end
 
 local function u32(n)
   n = n % 4294967296
@@ -319,6 +398,30 @@ function GE.ValidatePayload(payload, opts)
         if d.id == nil and d.local_id == nil then
           return false, "validation"
         end
+      end
+    end
+  end
+  -- Optional web echo of server rejections (soft; unknown keys ignored elsewhere).
+  -- Shape: rejects: [{ code, item_id?, slot?, message? }, ...]
+  if payload.rejects ~= nil then
+    if type(payload.rejects) ~= "table" then
+      return false, "validation"
+    end
+    for _, r in ipairs(payload.rejects) do
+      if type(r) ~= "table" or type(r.code) ~= "string" or r.code == "" then
+        return false, "validation"
+      end
+      if r.item_id ~= nil and not valid_item_id(r.item_id) then
+        return false, "validation"
+      end
+      if r.slot ~= nil then
+        local GS = CrusaderStrikeGearSlots
+        if not GS or not GS.IsValidName(r.slot) then
+          return false, "validation"
+        end
+      end
+      if r.message ~= nil and (type(r.message) ~= "string" or has_control(r.message) or #r.message > 200) then
+        return false, "validation"
       end
     end
   end
