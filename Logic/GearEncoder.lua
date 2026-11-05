@@ -20,6 +20,7 @@ CrusaderStrikeGearEncoder = CrusaderStrikeGearEncoder or {}
 local GE = CrusaderStrikeGearEncoder
 
 local PREFIX = "CSGEAR1:"
+local CSGEAR_VERSION = 1
 local PASTE_MAX = 24 * 1024
 local JSON_MAX = 16 * 1024
 local REGION_ALLOW = {
@@ -70,6 +71,9 @@ end
 -- Player-facing reject / reason strings for /cs import, gear UI, and companion sync.
 local REJECT_MESSAGES = {
   bad_prefix = "Not a CSGEAR1 string (wrong prefix).",
+  wrong_version = "Gear string version is not supported (this addon reads CSGEAR1 only) — update the addon or export again.",
+  truncated = "Gear string is incomplete or truncated — copy the whole CSGEAR1 line including the |c= checksum.",
+  unknown_item = "Gear string has an unknown item ID — remove it on the website and export again.",
   bad_checksum = "Gear string checksum failed — copy the whole CSGEAR1 line.",
   too_large = "Gear string is too large to import.",
   bad_json = "Gear string is corrupted or not valid JSON.",
@@ -97,11 +101,14 @@ local REJECT_MESSAGES = {
   upstream_unavailable = "Crusader Strike or Battle.net is temporarily unavailable. Gear changes are saved locally and will retry.",
   rate_limited = "Crusader Strike rate limit reached. Gear changes are saved locally; try again soon.",
   version_mismatch = "This gear set changed on the website. Local changes are kept — sync again to reload and retry.",
-  -- Ops / companion alias for version_mismatch (platform#62 version_conflict smoke; stale_base_version).
+  -- Client-side alias for the live x-error-code version_mismatch (also stale_base_version
+  -- op conflicts). Not itself a live x-error-code.
   version_conflict = "This gear set changed on the website. Local changes are kept — sync again to reload and retry.",
-  -- Soft-ignored unknown keys on an op (GearOpsResult.ignored[]); not a hard FailSync by itself.
+  -- Client-side code for soft-ignored op keys (GearOpsResult.ignored[] on a 2xx); not a live
+  -- x-error-code and never a FailSync by itself.
   ignored_op = "The server ignored some fields on a gear sync op. Local gear changes are kept.",
-  -- character_mismatch already listed above for import; same copy for FailSync / companion.
+  -- character_mismatch (listed above) is an import / run-upload reject; gear /ops does not
+  -- currently return it as a 409, but reuse the copy if a companion ever surfaces it.
   internal_error = "Crusader Strike hit an unexpected error. Gear changes are saved locally and will retry.",
   -- platform#54 field-map (validation / malformed JSON) — non-retryable
   invalid_json = "Crusader Strike rejected the sync payload (invalid JSON). Gear changes are saved locally; update the companion/addon and try again.",
@@ -117,6 +124,16 @@ function GE.RejectMessage(code)
     return msg
   end
   return "Import rejected (" .. tostring(code) .. ")."
+end
+
+-- One-line chat text for a failed /cs import: "Import failed: <what> (<detail>)".
+function GE.ImportErrorLine(code, detail)
+  local msg = GE.RejectMessage(code)
+  if detail ~= nil and detail ~= "" then
+    msg = msg .. " (" .. tostring(detail) .. ")"
+  end
+  msg = msg:gsub("[\r\n]+", " ")
+  return "Import failed: " .. msg
 end
 
 -- Companion /sync player-facing text (sync-specific fallback; not "Import rejected").
@@ -305,8 +322,9 @@ local function infer_code_from_status(status, hint)
   if status == 502 or status == 503 or status == 504 then
     return "upstream_unavailable"
   end
-  -- 409 has several stable codes (version_mismatch / version_conflict,
-  -- character_not_displayed, list_limit_reached, character_mismatch); only infer
+  -- 409 has several stable codes (version_mismatch, character_not_displayed,
+  -- list_limit_reached; version_conflict is a client alias and character_mismatch
+  -- is not a gear 409 today, but both are matched defensively); only infer
   -- when the hint clearly points at version or character mismatch.
   if status == 409 and type(hint) == "string" then
     local h = string.lower(hint)
@@ -607,7 +625,7 @@ local function valid_iso(s)
   return type(s) == "string" and s:match("^%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%dZ$") ~= nil
 end
 
-local function validate_slots_map(slots, allow_null)
+local function validate_slots_map(slots, allow_null, item_known)
   if slots == nil then
     return true
   end
@@ -624,7 +642,9 @@ local function validate_slots_map(slots, allow_null)
         return false, "validation"
       end
     elseif not valid_item_id(v) then
-      return false, "validation"
+      return false, "unknown_item", tostring(k) .. "=" .. tostring(v)
+    elseif item_known and not item_known(v) then
+      return false, "unknown_item", tostring(k) .. "=" .. tostring(v)
     end
   end
   return true
@@ -684,7 +704,7 @@ local function validate_removes(removes)
   return true
 end
 
-local function validate_list(list)
+local function validate_list(list, item_known)
   if type(list) ~= "table" then
     return false, "validation"
   end
@@ -737,9 +757,9 @@ local function validate_list(list)
   if list.edited_in ~= nil and list.edited_in ~= "game" and list.edited_in ~= "web" then
     return false, "validation"
   end
-  local ok, code = validate_slots_map(list.slots, true)
+  local ok, code, detail = validate_slots_map(list.slots, true, item_known)
   if not ok then
-    return false, code
+    return false, code, detail and (tostring(list.name) .. ": " .. detail)
   end
   ok, code = validate_removes(list.removes)
   if not ok then
@@ -788,9 +808,10 @@ function GE.ValidatePayload(payload, opts)
   end
   local seen_names = {}
   for _, list in ipairs(payload.lists) do
-    ok, code = validate_list(list)
+    local detail
+    ok, code, detail = validate_list(list, opts.item_known)
     if not ok then
-      return false, code
+      return false, code, detail
     end
     local n = (list.name:match("^%s*(.-)%s*$") or ""):lower()
     if seen_names[n] then
@@ -945,20 +966,24 @@ function GE.Decode(exportString, opts)
     return nil, "too_large"
   end
   if exportString:sub(1, #PREFIX) ~= PREFIX then
+    local ver = exportString:match("^CSGEAR(%w*):")
+    if ver then
+      return nil, "wrong_version", "CSGEAR" .. ver
+    end
     return nil, "bad_prefix"
   end
   local rest = exportString:sub(#PREFIX + 1)
-  local b64, hex = rest:match("^(.-)|c=([0-9a-fA-F]+)$")
+  local b64, hex = rest:match("^(.-)|c=([0-9a-fA-F]*)$")
   if not b64 or not hex or #hex ~= 8 then
-    return nil, "bad_checksum"
+    return nil, "truncated"
   end
   hex = hex:lower()
   if not CrusaderStrikeEncoder or not CrusaderStrikeEncoder.Base64Decode then
     return nil, "encoder"
   end
   local json, err = CrusaderStrikeEncoder.Base64Decode(b64)
-  if not json then
-    return nil, "bad_json"
+  if not json or #b64 % 4 ~= 0 then
+    return nil, "truncated"
   end
   if #json > JSON_MAX then
     return nil, "too_large"
@@ -970,13 +995,14 @@ function GE.Decode(exportString, opts)
   if not payload then
     return nil, "bad_json"
   end
-  local ok, code = GE.ValidatePayload(payload, opts)
+  local ok, code, detail = GE.ValidatePayload(payload, opts)
   if not ok then
-    return nil, code
+    return nil, code, detail
   end
   return payload
 end
 
 GE.PREFIX = PREFIX
+GE.CSGEAR_VERSION = CSGEAR_VERSION
 GE.PASTE_MAX = PASTE_MAX
 GE.JSON_MAX = JSON_MAX

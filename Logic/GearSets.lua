@@ -751,17 +751,10 @@ function G.ApplyOpsResult(charDB, local_id, result)
   -- Successful ops response: leave retryable pending (rebuilt) but clear syncing flag.
   list.syncing = false
   if #errors == 0 and #(list.pending_ops or {}) == 0 then
-    if ignored_message then
-      -- Soft notice only — ops applied; pending cleared. Do not FailSync.
-      list.last_sync_error = {
-        code = "ignored_op",
-        message = ignored_message,
-        retryable = false,
-        at = now_iso(),
-      }
-    else
-      list.last_sync_error = nil
-    end
+    -- Ops applied and queue drained: clear any prior error. ignored[] is a soft,
+    -- one-shot notice via the returned ignored_message (UI prints it once); it is
+    -- not stored as a sticky last_sync_error (addon#57, #56 review nit).
+    list.last_sync_error = nil
   elseif #errors > 0 then
     list.last_sync_error = {
       code = errors[1].reason,
@@ -859,7 +852,7 @@ function G.BuildExportPayload(charDB, meta)
     deleted[i] = { id = d.id, local_id = d.local_id }
   end
   local equipped = meta.equipped
-  if equipped == nil and CrusaderStrikeEquippedGear then
+  if equipped == nil and not meta.omit_equipped and CrusaderStrikeEquippedGear then
     equipped = CrusaderStrikeEquippedGear.ScanNow()
   end
   return {
@@ -869,8 +862,8 @@ function G.BuildExportPayload(charDB, meta)
     realm = meta.realm or "",
     character = meta.character or "",
     character_id = bucket.character_id,
-    exported_at = now_iso(),
-    equipped = equipped or {},
+    exported_at = meta.exported_at or now_iso(),
+    equipped = (not meta.omit_equipped) and (equipped or {}) or nil,
     lists = lists,
     deleted_lists = deleted,
   }
