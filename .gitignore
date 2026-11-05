@@ -46,3 +46,4 @@ luarocks/
 # Test artifacts
 tests/.out/
 *.tap
+dist/

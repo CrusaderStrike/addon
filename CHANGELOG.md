@@ -2,6 +2,12 @@
 
 All notable changes to CrusaderStrike (World of Warcraft: Forever only).
 
+## 0.3.1 (WoW Forever)
+
+### Changed
+- Version bump to **0.3.1** and first GitHub Release zip for in-game install (addon#31 / Refs #26).
+- Ships the CSGEAR1 round-trip harden from #30 (`490c1e0`) so Drew's morning check (#26) can use a tagged release instead of a SHA checkout.
+
 ## 0.3.0 (WoW Forever)
 
 ### Added
