@@ -164,7 +164,7 @@ Canonical contract: CrusaderStrike/platform `openapi/v1.yaml` (`operationId: upl
 | | |
 |--|--|
 | **URL** | `https://api.crusaderstrike.com/api/v1/uploads` |
-| **Auth** | Session cookie (`cs_session`) + `X-CSRF-Token` (from `GET /auth/session`). Bearer `uploaderToken` for a companion is a follow-up (not required for website paste). |
+| **Auth** | Session cookie (`cs_session`) + `X-CSRF-Token` (from `GET /api/v1/auth/session`). Bearer `uploaderToken` for a companion is a follow-up (not required for website paste). |
 | **Body** | JSON `AddonUpload` envelope, `additionalProperties: false` |
 | **Max body** | **1 MiB** for the whole JSON (`413` if larger). Clients must split backlogs across requests. |
 
@@ -174,6 +174,19 @@ Canonical contract: CrusaderStrike/platform `openapi/v1.yaml` (`operationId: upl
 {
   "schemaVersion": 1,
   "characterId": "<opaque id from character selection>",
+  "dungeonRuns": [ /* RunUpload records, ≤ 100 */ ],
+  "worldPvp": [ /* ≤ 1000; see docs/pvp-schema.md */ ],
+  "battlegrounds": [ /* ≤ 500; see docs/pvp-schema.md */ ]
+}
+```
+
+Alternative form, identifying the character by `realm` + `name` instead of `characterId`:
+
+```json
+{
+  "schemaVersion": 1,
+  "realm": "<realm, e.g. GetNormalizedRealmName()>",
+  "name": "<character name>",
   "dungeonRuns": [ /* RunUpload records, ≤ 100 */ ],
   "worldPvp": [ /* ≤ 1000; see docs/pvp-schema.md */ ],
   "battlegrounds": [ /* ≤ 500; see docs/pvp-schema.md */ ]
