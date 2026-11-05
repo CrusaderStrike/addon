@@ -2,7 +2,7 @@
   CrusaderStrike core: SavedVariables bootstrap, gameVersion (WoW Forever only), slash cmds.
   Storage is companion-uploader friendly:
     CrusaderStrikeDB (account)   — schemaVersion, settings, uploadQueue meta
-    CrusaderStrikeCharDB (char)  — gameVersion, activeRun, runs[idempotencyKey]=run
+    CrusaderStrikeCharDB (char)  — gameVersion, activeRun, runs[idempotencyKey]=run, pvp{world[],battlegrounds[]}
 ]]
 
 CrusaderStrike = CrusaderStrike or {}
@@ -10,7 +10,9 @@ local CS = CrusaderStrike
 
 CS.ADDON_NAME = "CrusaderStrike"
 CS.VERSION = "0.1.0"
-CS.SCHEMA_VERSION = 1
+-- SavedVariables layout version. 2 adds CrusaderStrikeCharDB.pvp (docs/pvp-schema.md).
+-- The run export payload keeps its own schemaVersion (1) in Logic/RunLifecycle.lua.
+CS.SCHEMA_VERSION = 2
 
 local defaultsAccount = {
   schemaVersion = CS.SCHEMA_VERSION,
@@ -29,6 +31,7 @@ local defaultsChar = {
   gameVersion = "forever",
   activeRunKey = nil,
   runs = {}, -- [idempotencyKey] = run table
+  pvp = { world = {}, battlegrounds = {}, seq = 0 }, -- schema v2, see docs/pvp-schema.md
 }
 
 local function deep_copy(src)
@@ -161,10 +164,16 @@ SlashCmdList["CRUSADERSTRIKE"] = function(msg)
       end
       CS.Print("No active run. Stored runs: " .. n)
     end
+  elseif cmd == "pvp" then
+    if CS.PvpLog and CS.PvpLog.Summary then
+      for _, line in ipairs(CS.PvpLog.Summary()) do
+        CS.Print(line)
+      end
+    end
   elseif cmd == "debug" then
     CrusaderStrikeDB.settings.debug = not CrusaderStrikeDB.settings.debug
     CS.Print("debug=" .. tostring(CrusaderStrikeDB.settings.debug))
   else
-    CS.Print("Commands: /cs export [key] | /cs status | /cs debug")
+    CS.Print("Commands: /cs export [key] | /cs status | /cs pvp | /cs debug")
   end
 end
