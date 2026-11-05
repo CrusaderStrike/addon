@@ -267,3 +267,16 @@ Stable reject codes include `character_mismatch` and `insert_failed` (never raw 
 
 ### SavedVariables v2 (groomed ticket A)
 `CrusaderStrikeCharDB.schemaVersion` / `CrusaderStrikeDB.schemaVersion` are now `2` because v2 adds `CrusaderStrikeCharDB.pvp` (see [pvp-schema.md](pvp-schema.md)). The run export payload above keeps `schemaVersion: 1`.
+
+## Simulated records (`/cs debug simulate`, addon#22)
+
+`/cs debug simulate kill [bossName]` and `/cs debug simulate death [unit]` (only with
+`/cs debug on`) push synthetic ENCOUNTER_END/BOSS_KILL and PLAYER_DEAD/party deaths
+through the normal handlers into a separate sandbox run. That run and every boss/death
+row in it carry `simulated = true` in SavedVariables.
+
+- `/cs export` never picks a simulated run, and `ToExportTable` drops any row with
+  `simulated = true` unless called with `{ includeSimulated = true }`.
+- Uploaders must call `CrusaderStrikeRunLifecycle.IsUploadable(run)` and skip runs that
+  return false. Simulated data never reaches `POST /uploads` by default.
+- The real active run, its boss de-duplication and the real death tracker are untouched.

@@ -193,7 +193,16 @@ SlashCmdList["CRUSADERSTRIKE"] = function(msg)
   elseif cmd == "debug" then
     local sub, rest2 = (rest or ""):match("^(%S+)%s*(.*)$")
     sub = sub and sub:lower() or nil
-    if sub == "events" then
+    if sub == "on" or sub == "off" then
+      CrusaderStrikeDB.settings.debug = (sub == "on")
+      CS.Print("debug=" .. tostring(CrusaderStrikeDB.settings.debug))
+    elseif sub == "simulate" then
+      if CS.DebugSimulate and CS.DebugSimulate.Command then
+        CS.DebugSimulate.Command(rest2)
+      else
+        CS.Print("debug simulate unavailable")
+      end
+    elseif sub == "events" then
       local mode = (rest2 or ""):match("^(%S+)")
       mode = mode and mode:lower() or "on"
       if not CrusaderStrikeDebugEvents then
