@@ -1506,7 +1506,7 @@ local function add_icon_button(parent, name, texture, tooltip)
   if btn.CreateTexture then
     local icon = btn:CreateTexture(nil, "ARTWORK")
     if icon.SetPoint then
-      icon:SetPoint("CENTER")
+      icon:SetPoint("CENTER", btn, "CENTER", 0, 0)
     end
     if icon.SetSize then
       icon:SetSize(36, 36)
@@ -1656,8 +1656,16 @@ local function build_doll(parent)
   -- PaperDoll-sized viewer. Not CharacterFrame and not stretched over the sheet.
   dollFrame._csPaperDoll = true
   dollFrame._csOwnedDoll = true
-  -- Shift the doll+sidebar pair toward the middle of the CS tab.
-  dollFrame:SetPoint("TOP", parent, "TOP", -math.floor(UI.SIDEBAR_WIDTH / 2), -8)
+  if dollFrame.SetParent then
+    dollFrame:SetParent(parent)
+  end
+  if dollFrame.ClearAllPoints then
+    dollFrame:ClearAllPoints()
+  end
+  -- Center on the CS tab content frame. The sidebar is attached to the doll's
+  -- right, so the pair is centered by shifting left half the sidebar width.
+  -- The relative frame is the tab content parent, never UIParent.
+  dollFrame:SetPoint("CENTER", parent, "CENTER", -math.floor(UI.SIDEBAR_WIDTH / 2), 0)
   dollFrame:SetSize(PAPERDOLL_WIDTH, PAPERDOLL_HEIGHT)
   if dollFrame.EnableMouse then
     dollFrame:EnableMouse(true)
@@ -1993,9 +2001,11 @@ local function ensure_ui()
 
   -- Mode buttons exist only on the right pane, at its top, above the
   -- sets / browser / stats body. They are not placed over the slot grid.
+  -- The row spans the pop-out so the content frame can hang off its bottom.
   local iconRow = CreateFrame("Frame", "CrusaderStrikeGearIconRow", popout)
-  iconRow:SetSize((UI.SIDEBAR_TAB_W * 3) + (UI.SIDEBAR_TAB_GAP * 2), UI.SIDEBAR_TAB_H)
-  iconRow:SetPoint("TOPRIGHT", popout, "TOPRIGHT", -6, -4)
+  iconRow:SetHeight(UI.SIDEBAR_TAB_H)
+  iconRow:SetPoint("TOPLEFT", popout, "TOPLEFT", 0, -UI.SIDEBAR_TAB_GAP)
+  iconRow:SetPoint("TOPRIGHT", popout, "TOPRIGHT", 0, -UI.SIDEBAR_TAB_GAP)
   if iconRow.EnableMouse then
     iconRow:EnableMouse(true)
   end
@@ -2029,16 +2039,20 @@ local function ensure_ui()
   size_sidebar_tab(topStatsBtn)
   size_sidebar_tab(topBrowserBtn)
   size_sidebar_tab(topSetsBtn)
-  topStatsBtn:SetPoint("RIGHT", iconRow, "RIGHT", 0, 0)
+  topStatsBtn:SetPoint("RIGHT", iconRow, "RIGHT", -6, 0)
   topBrowserBtn:SetPoint("RIGHT", topStatsBtn, "LEFT", -UI.SIDEBAR_TAB_GAP, 0)
   topSetsBtn:SetPoint("RIGHT", topBrowserBtn, "LEFT", -UI.SIDEBAR_TAB_GAP, 0)
 
-  local sidebarTop = -(4 + UI.SIDEBAR_TAB_H + 4)
+  -- Gear Sets, Browser, and Stats are children of the pop-out. Their top edge
+  -- follows the tab row; the other edges follow the pop-out. No screen coords.
   local function anchor_sidebar_panel(panel)
+    if panel.SetParent then
+      panel:SetParent(popout)
+    end
     if panel.ClearAllPoints then
       panel:ClearAllPoints()
     end
-    panel:SetPoint("TOPLEFT", popout, "TOPLEFT", 0, sidebarTop)
+    panel:SetPoint("TOPLEFT", iconRow, "BOTTOMLEFT", 0, -UI.SIDEBAR_TAB_GAP)
     panel:SetPoint("BOTTOMRIGHT", popout, "BOTTOMRIGHT", 0, 0)
     panel._csSidebarPanel = true
   end
