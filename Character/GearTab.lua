@@ -1,17 +1,22 @@
--- Character-pane Crusader Strike gear UI.
+-- Crusader Strike gear window.
 --
--- Completely separate from the Forever Character / PaperDoll tab:
---   * CS-owned slot buttons (CrusaderStrikeHeadSlot …), never Character*Slot
---   * Side-tab chrome via CharacterFrameModeSideTabTemplate, parented to
+-- Own window, parented to UIParent. It is not a CharacterFrame overlay and
+-- not a paper-doll silhouette: no SetAllPoints(CharacterFrame), no portrait,
+-- no player model. Opening it does not resize, cover, or restyle the
+-- Character / PaperDoll tab.
+--
+-- Taint:
+--   * Side-tab launcher uses CharacterFrameModeSideTabTemplate, parented to
 --     ModeTabs for look — but NEVER appended to ModeTabs.Tabs (no injection)
 --   * No hooksecurefunc on ShowSubFrame / OnShow / OnHide
 --   * No SetScript swaps on Blizzard paper-doll buttons
 --   * No programmatic SecureActionButton:Click / ShowUIPanel / RefreshDisplay
+--   * CS-owned slot buttons (CrusaderStrikeHeadSlot …), never Character*Slot
 --
--- Entry: /cs geartab while CharacterFrame is already open, or the CS-owned
--- side-tab toggle (logo) under the Forever mode-tab strip.
+-- Entry: /cs geartab (CharacterFrame may be closed), or the CS-owned side-tab
+-- logo under the Forever mode-tab strip. Either path shows this window only.
 --
--- Inside the CS frame: Gear Sets, Gear Browser, and Stats are separate panes.
+-- The window holds Gear Sets, Gear Browser, and Stats as separate panes.
 -- Left-click a browser item to equip it into the current gear set; right-click
 -- a CS gear-set slot to unequip. AtlasLoot Classic data.lua is a layout
 -- reference only (GPL-2.0). See docs/character-gear-tab.md.
@@ -22,6 +27,12 @@ CS.CharacterGearTab = CS.CharacterGearTab or {}
 local UI = CS.CharacterGearTab
 
 UI.FRAME_NAME = "CrusaderStrikeCharacterGearFrame"
+
+-- Standalone window size. Deliberately not CharacterFrame's dimensions.
+UI.WINDOW_WIDTH = 560
+UI.WINDOW_HEIGHT = 560
+local DOLL_WIDTH = 236
+local TITLE_BAR = 44
 
 -- CS-owned slot buttons. Names match GearSlots wire slots; globals are
 -- CrusaderStrike* so Character*Slot is never touched.
@@ -923,9 +934,9 @@ end
 
 local function build_doll(parent)
   dollFrame = CreateFrame("Frame", "CrusaderStrikeGearDoll", parent, "BackdropTemplate")
-  dollFrame:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, -52)
-  dollFrame:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 8, 8)
-  dollFrame:SetWidth(220)
+  dollFrame:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, -(TITLE_BAR + 4))
+  dollFrame:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 8, 10)
+  dollFrame:SetWidth(DOLL_WIDTH)
   if dollFrame.EnableMouse then
     dollFrame:EnableMouse(true)
   end
@@ -1082,31 +1093,97 @@ local function ensure_toggle(cf)
   end
 end
 
+local function register_escape_close()
+  if type(_G.UISpecialFrames) ~= "table" then
+    _G.UISpecialFrames = {}
+  end
+  for _, name in ipairs(_G.UISpecialFrames) do
+    if name == UI.FRAME_NAME then
+      return
+    end
+  end
+  _G.UISpecialFrames[#_G.UISpecialFrames + 1] = UI.FRAME_NAME
+end
+
 local function ensure_ui()
-  local cf = _G.CharacterFrame
-  if root or not cf then
+  if root then
     return
   end
 
-  root = CreateFrame("Frame", UI.FRAME_NAME, cf, "BackdropTemplate")
-  root:SetAllPoints(cf)
+  -- UIParent, never CharacterFrame. Own size and chrome (title + close),
+  -- not a paper-doll portrait frame stretched over the character tab.
+  root = CreateFrame("Frame", UI.FRAME_NAME, _G.UIParent, "BackdropTemplate")
+  root._csOwnedWindow = true
+  root._csTitle = "Crusader Strike"
+  root:SetSize(UI.WINDOW_WIDTH, UI.WINDOW_HEIGHT)
+  root:SetPoint("CENTER", _G.UIParent, "CENTER", 80, 0)
+  if root.SetFrameStrata then
+    root:SetFrameStrata("HIGH")
+  end
+  if root.SetFrameLevel then
+    root:SetFrameLevel(20)
+  end
+  if root.SetMovable then
+    root:SetMovable(true)
+  end
   if root.EnableMouse then
     root:EnableMouse(true)
   end
-  if root.SetFrameLevel then
-    root:SetFrameLevel(30)
+  if root.RegisterForDrag then
+    root:RegisterForDrag("LeftButton")
   end
+  if root.SetClampedToScreen then
+    root:SetClampedToScreen(true)
+  end
+  if root.SetToplevel then
+    root:SetToplevel(true)
+  end
+  root:SetScript("OnDragStart", function(self)
+    if self.StartMoving then
+      self:StartMoving()
+    end
+  end)
+  root:SetScript("OnDragStop", function(self)
+    if self.StopMovingOrSizing then
+      self:StopMovingOrSizing()
+    end
+  end)
   apply_backdrop(root)
   root:SetScript("OnHide", function()
+    UI.Leave()
+  end)
+  register_escape_close()
+
+  if root.CreateTexture then
+    local titleIcon = root:CreateTexture(nil, "ARTWORK")
+    if titleIcon.SetSize then
+      titleIcon:SetSize(20, 20)
+    end
+    if titleIcon.SetPoint then
+      titleIcon:SetPoint("TOPLEFT", root, "TOPLEFT", 12, -12)
+    end
+    if titleIcon.SetTexture then
+      titleIcon:SetTexture(CS_LOGO)
+    end
+  end
+  add_text(root, "GameFontNormalLarge", "Crusader Strike", 38, -14)
+
+  local closeBtn = CreateFrame("Button", "CrusaderStrikeCharacterGearClose", root, "UIPanelButtonTemplate")
+  closeBtn:SetSize(64, 22)
+  closeBtn:SetPoint("TOPRIGHT", root, "TOPRIGHT", -10, -12)
+  closeBtn:SetText("Close")
+  closeBtn:SetScript("OnClick", function()
     UI.Leave()
   end)
 
   build_doll(root)
 
-  -- Three separate panes: Gear Sets / Browser / Stats.
+  -- Three separate panes: Gear Sets / Browser / Stats. They live in this
+  -- window's right column, not on CharacterFrame.
   local iconRow = CreateFrame("Frame", "CrusaderStrikeGearIconRow", root)
-  iconRow:SetSize(140, 46)
-  iconRow:SetPoint("TOP", root, "TOP", 60, -4)
+  iconRow:SetHeight(46)
+  iconRow:SetPoint("TOPLEFT", root, "TOPLEFT", 8 + DOLL_WIDTH + 8, -6)
+  iconRow:SetPoint("TOPRIGHT", root, "TOPRIGHT", -80, -6)
   if iconRow.EnableMouse then
     iconRow:EnableMouse(false)
   end
@@ -1133,8 +1210,8 @@ local function ensure_ui()
   end)
 
   local rightHost = CreateFrame("Frame", "CrusaderStrikeGearRightHost", root)
-  rightHost:SetPoint("TOPLEFT", root, "TOPLEFT", 236, -52)
-  rightHost:SetPoint("BOTTOMRIGHT", root, "BOTTOMRIGHT", -8, 8)
+  rightHost:SetPoint("TOPLEFT", root, "TOPLEFT", 8 + DOLL_WIDTH + 8, -(TITLE_BAR + 8))
+  rightHost:SetPoint("BOTTOMRIGHT", root, "BOTTOMRIGHT", -10, 10)
   if rightHost.EnableMouse then
     rightHost:EnableMouse(true)
   end
@@ -1325,33 +1402,25 @@ local function ensure_ui()
 end
 
 function UI.Leave()
-  if not state.active then
-    if root and root.IsShown and root:IsShown() and root.Hide then
-      root:Hide()
-    end
+  if state._leaving then
     return
   end
+  state._leaving = true
   state.active = false
   refresh_toggle_checked()
-  if root and root.IsShown and root:IsShown() then
+  if root and root.Hide and root.IsShown and root:IsShown() then
     root:Hide()
   end
+  state._leaving = false
 end
 
 function UI.Enter()
   local cf = _G.CharacterFrame
-  if not cf then
-    return
+  -- Launcher chrome only. The window itself never touches PaperDoll.
+  if cf then
+    ensure_toggle(cf)
   end
-  if cf.IsShown and not cf:IsShown() then
-    if CS.Print then
-      CS.Print("Open the character pane first, then /cs geartab")
-    end
-    return
-  end
-  -- CS-owned frames only. Never mutate Blizzard PaperDoll or ModeTabs.Tabs.
   state.active = true
-  ensure_toggle(cf)
   ensure_ui()
   refresh_toggle_checked()
   if root then
@@ -1362,10 +1431,9 @@ end
 
 function UI.Install()
   local cf = _G.CharacterFrame
-  if not cf then
-    return false
+  if cf then
+    ensure_toggle(cf)
   end
-  ensure_toggle(cf)
   if not itemInfoWatcher then
     itemInfoWatcher = CreateFrame("Frame", "CrusaderStrikeGearItemInfoWatcher")
     itemInfoWatcher:RegisterEvent("GET_ITEM_INFO_RECEIVED")
@@ -1387,25 +1455,16 @@ function UI.Install()
       end
     end)
   end
-  return true
+  -- False when CharacterFrame is not loaded yet so the login retry can
+  -- attach the side-tab launcher once the frame exists.
+  return cf ~= nil
 end
 
 function UI.Show()
-  if not UI.Install() then
-    if CS.Print then
-      CS.Print("character pane unavailable")
-    end
-    return
-  end
-  local cf = _G.CharacterFrame
+  -- Own window. CharacterFrame is not shown, resized, or covered.
   -- Never ShowUIPanel / CharacterFrame:Show / ShowSubFrame / SecureActionButton:Click.
-  if cf.IsShown and cf:IsShown() then
-    UI.Enter()
-    return
-  end
-  if CS.Print then
-    CS.Print("Open the character pane first, then /cs geartab")
-  end
+  UI.Install()
+  UI.Enter()
 end
 
 local watcher = CreateFrame("Frame", "CrusaderStrikeCharacterGearWatcher")

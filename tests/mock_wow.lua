@@ -70,10 +70,52 @@ function _G.CreateFrame(frameType, name, parent, template)
       if fn then fn(...) end
     end
   end
-  function f:SetSize() end
-  function f:SetPoint() end
-  function f:SetAllPoints() end
-  function f:ClearAllPoints() end
+  function f:SetSize(w, h)
+    self._width = w
+    self._height = h
+  end
+  function f:SetPoint(point, arg2, arg3, arg4, arg5)
+    self._points = self._points or {}
+    local rel, relPoint, x, y
+    if type(arg2) == "number" or arg2 == nil then
+      x, y = arg2, arg3
+    elseif type(arg3) == "number" then
+      rel, x, y = arg2, arg3, arg4
+    else
+      rel, relPoint, x, y = arg2, arg3, arg4, arg5
+    end
+    self._points[#self._points + 1] = {
+      point = point,
+      rel = rel,
+      relPoint = relPoint,
+      x = x,
+      y = y,
+    }
+  end
+  function f:SetAllPoints(rel)
+    self._allPoints = rel or self._parent
+    self._points = {}
+  end
+  function f:ClearAllPoints()
+    self._points = {}
+    self._allPoints = nil
+  end
+  function f:GetNumPoints()
+    return self._points and #self._points or 0
+  end
+  function f:GetPoint(index)
+    local p = self._points and self._points[index or 1]
+    if not p then
+      return nil
+    end
+    return p.point, p.rel, p.relPoint, p.x, p.y
+  end
+  function f:GetWidth()
+    return self._width
+  end
+  function f:GetHeight()
+    return self._height
+  end
   function f:SetParent(p) self._parent = p end
   function f:GetParent() return self._parent end
   function f:SetFrameLevel(level) self._level = level end
@@ -96,7 +138,12 @@ function _G.CreateFrame(frameType, name, parent, template)
   function f:SetBackdropBorderColor() end
   function f:Click() end
   function f:SetAttribute() end
-  function f:SetFrameStrata() end
+  function f:SetFrameStrata(strata)
+    self._strata = strata
+  end
+  function f:GetFrameStrata()
+    return self._strata
+  end
   function f:SetMovable() end
   function f:EnableMouse() end
   function f:RegisterForDrag() end
@@ -148,8 +195,12 @@ function _G.CreateFrame(frameType, name, parent, template)
   function f:SetItemByID() end
   function f:SetMultiLine() end
   function f:SetFontObject() end
-  function f:SetWidth() end
-  function f:SetHeight() end
+  function f:SetWidth(w)
+    self._width = w
+  end
+  function f:SetHeight(h)
+    self._height = h
+  end
   function f:SetAutoFocus() end
   function f:SetText(t) self._text = t end
   function f:GetText() return self._text end
@@ -158,7 +209,9 @@ function _G.CreateFrame(frameType, name, parent, template)
   function f:SetScrollChild() end
   function f:Hide() self._shown = false end
   function f:Show() self._shown = true end
-  function f:SetText() end -- button
+  function f:SetText(t)
+    self._text = t
+  end
   if name then
     _G[name] = f
   end

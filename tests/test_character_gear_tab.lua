@@ -14,10 +14,16 @@ describe("character gear tab scaffold", function()
     local prev = _G.CharacterFrame
     _G.CharacterFrame = nil
     SlashCmdList["CRUSADERSTRIKE"]("geartab")
+    local root = _G.CrusaderStrikeCharacterGearFrame
+    ok(root ~= nil)
+    eq(root:GetParent(), _G.UIParent)
+    ok(root:IsShown())
+    eq(root._allPoints, nil)
+    eq(root._csOwnedWindow, true)
     _G.CharacterFrame = prev
   end)
 
-  it("opens a CS-owned overlay without mutating Character slots or ModeTabs", function()
+  it("opens a CS-owned window without mutating Character slots or ModeTabs", function()
     local UI = CrusaderStrike.CharacterGearTab
     local prevChar = _G.CharacterFrame
     local prevPaper = _G.PaperDollFrame
@@ -60,8 +66,11 @@ describe("character gear tab scaffold", function()
       self._selected = frameName
     end
 
+    _G.CharacterFrame._width = 338
     _G.PaperDollFrame = {
+      shown = true,
       Show = function(self) self.shown = true end,
+      Hide = function(self) self.shown = false end,
       IsShown = function(self) return self.shown end,
       EquipmentManagerPane = {
         Hide = function() equipHidden = true end,
@@ -78,14 +87,36 @@ describe("character gear tab scaffold", function()
 
     UI.Show()
 
-    -- Normal Character mode tabs untouched.
+    -- Normal Character mode tabs untouched. CS is its own window.
     eq(#tabs, 1)
     eq(_G.CharacterFrameModeTab7, nil)
     eq(#seen, 0)
     eq(showCalls, 0)
     eq(uiPanelCalls, 0)
     eq(equipHidden, false)
+    eq(_G.PaperDollFrame.shown, true)
+    eq(_G.CharacterFrame.activeSubframe, "PaperDollFrame")
+    eq(_G.CharacterFrame._selected, nil)
+    eq(_G.CharacterFrame._width, 338)
     eq(_G._CS_HookSecureCount or 0, prevHookCount)
+
+    local root = _G.CrusaderStrikeCharacterGearFrame
+    ok(root._csOwnedWindow)
+    eq(root._csTitle, "Crusader Strike")
+    eq(root:GetParent(), _G.UIParent)
+    eq(root:GetParent() == _G.CharacterFrame, false)
+    eq(root._allPoints, nil)
+    eq(root:GetWidth(), CrusaderStrike.CharacterGearTab.WINDOW_WIDTH)
+    eq(root:GetHeight(), CrusaderStrike.CharacterGearTab.WINDOW_HEIGHT)
+    eq(root:GetFrameStrata(), "HIGH")
+    local point, rel, relPoint, x = root:GetPoint(1)
+    eq(point, "CENTER")
+    eq(rel, _G.UIParent)
+    eq(relPoint, "CENTER")
+    eq(x, 80)
+    eq(_G.CrusaderStrikeGearDoll:GetParent(), root)
+    ok(_G.CrusaderStrikeCharacterGearClose ~= nil)
+    eq(_G.CrusaderStrikeCharacterGearClose:GetParent(), root)
 
     local toggle = _G.CrusaderStrikeGearTabToggle
     ok(toggle ~= nil)
@@ -290,6 +321,7 @@ describe("character gear tab scaffold", function()
     _G.CharacterFrame = {
       ModeTabs = { Tabs = {} },
       shown = false,
+      _width = 338,
       Show = function(self)
         showCalls = showCalls + 1
         self.shown = true
@@ -302,13 +334,20 @@ describe("character gear tab scaffold", function()
     }
     UI.Leave()
     UI.Show()
+    -- CS window opens on its own. CharacterFrame stays closed.
     eq(showCalls, 0)
+    eq(_G.CharacterFrame.shown, false)
+    eq(_G.CharacterFrame._width, 338)
     eq(UI.GetPreview().pending, false)
-    eq(UI.GetPreview().active, false)
-    ok(#printed >= 1)
-    -- Hidden pane OnShow must not auto-enter CS mode (no CharacterFrame hooks).
+    eq(UI.GetPreview().active, true)
+    ok(_G.CrusaderStrikeCharacterGearFrame:IsShown())
+    eq(_G.CrusaderStrikeCharacterGearFrame:GetParent(), _G.UIParent)
+    eq(#printed, 0)
+    -- Hidden pane OnShow must not be hooked by CS.
     _G.CharacterFrame:OnShow()
-    eq(UI.GetPreview().active, false)
+    eq(showCalls, 0)
+    eq(UI.GetPreview().active, true)
+    eq(_G.CrusaderStrikeCharacterGearFrame:GetParent(), _G.UIParent)
     CrusaderStrike.Print = prevPrint
     _G.CharacterFrame = prev
   end)

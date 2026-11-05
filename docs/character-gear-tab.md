@@ -1,14 +1,16 @@
 # Character pane gear tab
 
-Gear-set builder for Forever (addon#2, related to the addon#25 redesign). The
-Crusader Strike tab is **completely separate** from the normal Character /
-PaperDoll tab: no shared slot buttons, no script swaps on Blizzard frames, and
-no Equipment Manager sync. Left-click a browser item to equip it into the
-current gear set; right-click a CS gear-set slot to unequip.
+Gear-set builder for Forever (addon#2, related to the addon#25 redesign).
+Crusader Strike is **its own window**, parented to `UIParent`, with its own
+size and chrome. It is not an overlay on `CharacterFrame` and not a paper-doll
+silhouette: no portrait, no player model, no `SetAllPoints(CharacterFrame)`.
+Opening it does not resize, cover, or restyle the Character / PaperDoll tab.
+There are no shared slot buttons, no script swaps on Blizzard frames, and no
+Equipment Manager sync. Left-click a browser item to equip it into the current
+gear set; right-click a CS gear-set slot to unequip.
 
-The addon stays Lua-only. `Character/GearTab.lua` builds a **CS-owned frame**
-with `CreateFrame`. The normal Forever Character / PaperDoll mode tab is left
-completely untouched.
+The addon stays Lua-only. `Character/GearTab.lua` builds
+`CrusaderStrikeCharacterGearFrame` with `CreateFrame`.
 
 ## Where it sits
 
@@ -17,26 +19,26 @@ Forever 1.60.1 uses the Camelot character frame
 Mode tabs are the vertical side tabs `CharacterFrameModeTab1`–`6`
 (Character, Reputation, Skills, PvP, Currency, Statistics). **This addon does
 not append a seventh ModeTabs.Tabs entry** (that injection caused Character
-open taint). It **does** reuse `CharacterFrameModeSideTabTemplate` for chrome.
-
-Instead:
+open taint). It **does** reuse `CharacterFrameModeSideTabTemplate` for the
+launcher chrome only.
 
 - A CS-owned toggle (`CrusaderStrikeGearTabToggle`) is parented to `ModeTabs`
   with `CharacterFrameModeSideTabTemplate`, anchored under the last Forever
   side tab (`TOPLEFT` → last tab `BOTTOMLEFT`, 2px gap) so the logo sits in
-  the strip like the other character tabs. The Tabs table is never mutated.
-  Logo: `assets/logo.tga`.
-- `/cs geartab` (or that toggle) opens `CrusaderStrikeCharacterGearFrame` only
-  when `CharacterFrame` is **already** shown by a real user open. CS never
-  calls `ShowUIPanel`, `CharacterFrame:Show`, `ShowSubFrame`,
+  the strip. The Tabs table is never mutated. Logo: `assets/logo.tga`.
+  Clicking it shows or hides the CS window. It does not select a mode tab.
+- `/cs geartab` opens the same window even when `CharacterFrame` is closed.
+  CS never calls `ShowUIPanel`, `CharacterFrame:Show`, `ShowSubFrame`,
   `SetSelectedModeTabByFrame`, `Expand`, `RefreshDisplay`, or
   `SecureActionButton:Click`.
 - There is **no** `hooksecurefunc` on `CharacterFrame.ShowSubFrame`, `OnShow`,
-  or `OnHide`. Hiding the CS overlay (or its parent) leaves CS mode; the
-  normal Character tab is never mutated.
-- Inside the CS frame, **Gear Sets**, **Browser**, and **Stats** are three
-  separate panes, switched by 42px header icons (`INV_Misc_Gear_01`,
-  `INV_Misc_Bag_08`, `INV_Misc_Note_01`). Names are tooltips.
+  or `OnHide`. The CS window is a `HIGH` strata frame centered on `UIParent`
+  (offset so it is not stacked on the character sheet), titled "Crusader
+  Strike", movable, and closed with the Close button or Escape.
+- Inside the CS window, **Gear Sets**, **Browser**, and **Stats** are three
+  separate panes in the right column, switched by 42px header icons
+  (`INV_Misc_Gear_01`, `INV_Misc_Bag_08`, `INV_Misc_Note_01`). Names are
+  tooltips. The left column is the CS gear-set doll.
 - Gear-set slots are **CS-owned buttons** (`CrusaderStrikeHeadSlot` …
   `CrusaderStrikeTabardSlot` on `CrusaderStrikeGearDoll`). They never share
   frames or scripts with `CharacterHeadSlot` / PaperDoll. Left-click selects

@@ -5,10 +5,10 @@ All notable changes to CrusaderStrike (World of Warcraft: Forever only).
 ## Unreleased
 
 ### Added
-- **Character pane gear tab (scaffold):** last CharacterFrame mode tab and a CS subframe that reuses the real PaperDoll slot buttons for a wishlist preview. Gear Sets and Browser are icons on the right-pane header. The mode tab uses the Crusader Strike logo. A gear browser (dungeon filter, gear slot, item name or item ID) is wired to an empty Atlas-shaped adapter plus one Forever overlay example. No equip path. See `docs/character-gear-tab.md`.
+- **Crusader Strike gear window:** `/cs geartab` opens `CrusaderStrikeCharacterGearFrame`, a standalone window (own size and chrome, parented to `UIParent`) with CS-owned gear slots plus Gear Sets, Browser, and Stats panes. The Character / PaperDoll tab is not covered or restyled. A logo side-tab on the character frame is only a launcher (`ModeTabs.Tabs` is not injected). See `docs/character-gear-tab.md`.
 
 ### Fixed
-- **Character gear tab:** right-pane icon row, Crusader Strike logo on the mode tab, and a browser that replaces the right-hand stats panel. Dungeon dropdown lists every indexed Forever dungeon. Results are item icons with `SetItemByID` tooltips. Clicks fill the wishlist preview (auto slot from the item) and Create gear set saves a real set. While the tab is active, paper-doll clicks do not equip. CharacterFrame is not opened with `ShowUIPanel` / `Show` / `RefreshDisplay`.
+- **Character gear window:** Gear Sets, Browser, and Stats are separate panes. Dungeon list covers every indexed Forever dungeon. Results are item icons with `SetItemByID` tooltips. Left-click equips into the current gear set; right-click a CS slot unequips. Create gear set saves a real set. CharacterFrame is not opened with `ShowUIPanel` / `Show` / `RefreshDisplay`.
 
 ## 0.3.5 (WoW Forever)
 

@@ -33,7 +33,7 @@ Addon for **World of Warcraft: Forever only** that logs dungeon runs for the Cru
 | `Data/Loot.lua` | Bundled Forever dungeon loot (RFC verified sample; see docs/loot-data.md) |
 | `Logic/WishList.lua` | Pure per-dungeon wish-list helpers (unit-tested) |
 | `LootBrowser.lua` | `/cs loot` browser UI + CHAT_MSG_LOOT obtain marking |
-| `Character/GearTab.lua` | Last character-pane tab: wishlist gear sets + gear browser scaffold |
+| `Character/GearTab.lua` | Standalone Crusader Strike gear window (sets, browser, stats) |
 | `Logic/GearBrowser.lua` | Dungeon / name / item-id adapter (empty Atlas-shaped baseline) |
 | `Data/ForeverLootOverlay.lua` | Hand-curated Forever loot overlay example |
 | `docs/character-gear-tab.md` | Character tab layout, Atlas GPL note, overlay plan |
@@ -81,9 +81,9 @@ Named leveling / max_level gear sets sync by copy-paste (`CSGEAR1:`). Equipped g
 
 In-game UI to browse Forever dungeon loot and build a per-character wish list per dungeon (addon#2). Open with `/cs loot` or `/cs wishlist`. Lists are stored in `CrusaderStrikeCharDB.wishLists` (schema v3). v0.2.0 ships verified Ragefire Chasm boss rares only; other dungeons appear in the list without loot rows until IDs are confirmed — see [docs/loot-data.md](docs/loot-data.md). No CLEU; obtain marking uses `CHAT_MSG_LOOT`.
 
-## Character gear tab (`/cs geartab`)
+## Character gear window (`/cs geartab`)
 
-Scaffold for a last tab on the Forever character pane. While it is open, paper-doll clicks do not equip. Gear Sets keeps wishlist stats on the right; Browser replaces that pane with an icon grid, a dungeon dropdown of every indexed dungeon, and Create gear set. AtlasLoot Classic is a GPL-2.0 layout reference only — do not copy it wholesale. See [docs/character-gear-tab.md](docs/character-gear-tab.md).
+Standalone Crusader Strike window (own size and chrome, parented to `UIParent`). It does not cover or restyle the Character / PaperDoll tab. Gear-set slots are CS-owned. Gear Sets, Browser, and Stats are panes inside the window. AtlasLoot Classic is a GPL-2.0 layout reference only — do not copy it wholesale. See [docs/character-gear-tab.md](docs/character-gear-tab.md).
 
 ## Develop / test
 
