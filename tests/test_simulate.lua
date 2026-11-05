@@ -201,6 +201,24 @@ describe("simulated sandbox runs are never resumed (review 5780402317)", functio
     end)
   end
 
+  it("real RFC entry does not resume a CLOSED simulated run inside the window", function()
+    reset()
+    CrusaderStrikeDB.settings.debug = true
+    local okk, msg, sim = CS.DebugSimulate.Kill("oggle")
+    ok(okk, tostring(msg))
+    sim.status = "closed"
+    sim.endTimeUnix = os.time()
+    CrusaderStrikeCharDB.activeRunKey = nil
+    ok(not RL.ShouldResume(sim, 389, os.time(), 10800), "closed sim not resume-eligible")
+    enter_rfc()
+    local key = CrusaderStrikeCharDB.activeRunKey
+    ok(key and key ~= sim.idempotencyKey, "did not resume closed sandbox")
+    local live = CrusaderStrikeCharDB.runs[key]
+    ok(live and not live.simulated, "live run is real")
+    eq(live.status, "in_progress")
+    eq(sim.status, "closed", "closed sandbox untouched")
+  end)
+
   it("ToExportTable refuses a simulated run unless includeSimulated", function()
     local run = { simulated = true, status = "abandoned", instance = { id = 389 }, bosses = {}, deaths = {} }
     eq(RL.ToExportTable(run), nil)
