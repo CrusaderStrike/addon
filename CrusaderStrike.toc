@@ -1,0 +1,19 @@
+# TODO(unverified): 16001 is reported for WoW Forever 1.60.1 by addon authors/CurseForge,
+# not yet confirmed by an official Blizzard or Wowhead source. See docs/sources.md.
+## Interface: 16001
+## Title: CrusaderStrike
+## Notes: Dungeon-run logging for Crusader Strike (World of Warcraft: Forever only).
+## Author: CrusaderStrike
+## Version: 0.1.0
+## SavedVariables: CrusaderStrikeDB
+## SavedVariablesPerCharacter: CrusaderStrikeCharDB
+## X-GameVersions: forever
+## X-SchemaVersion: 1
+
+Data\Bosses.lua
+Logic\Idempotency.lua
+Logic\Encoder.lua
+Logic\RunLifecycle.lua
+Core.lua
+DungeonLog.lua
+Export.lua

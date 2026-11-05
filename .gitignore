@@ -17,3 +17,32 @@ Thumbs.db
 # Packaged releases
 *.zip
 .release/
+
+# Additional local rules
+# Secrets / local credentials — never commit
+.env
+.env.*
+*.pem
+*.key
+*token*
+*secret*
+credentials*
+.vault*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+
+# Lua / luarocks
+luarocks/
+.lua/
+*.rock
+*.rockspec.lock
+
+# Test artifacts
+tests/.out/
+*.tap
