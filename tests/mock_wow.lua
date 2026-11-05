@@ -76,6 +76,7 @@ function _G.CreateFrame(frameType, name, parent, template)
   function f:SetMultiLine() end
   function f:SetFontObject() end
   function f:SetWidth() end
+  function f:SetHeight() end
   function f:SetAutoFocus() end
   function f:SetText(t) self._text = t end
   function f:GetText() return self._text end

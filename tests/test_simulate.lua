@@ -152,10 +152,15 @@ describe("simulated records excluded from export/upload", function()
     local orig = CS.Print
     CS.Print = function(m) printed[#printed + 1] = m end
     CS.Export.Show(nil)
+    local firstCount = #printed
     CS.Export.Show(run.idempotencyKey)
     CS.Print = orig
-    eq(printed[1], "No runs to export yet.")
-    ok(printed[2] and printed[2]:find("simulated", 1, true), "explicit key refused")
+    eq(printed[1], "No runs to export yet (gear line still available).")
+    local refused = false
+    for i = firstCount + 1, #printed do
+      if printed[i]:find("simulated", 1, true) then refused = true end
+    end
+    ok(refused, "explicit key refused")
   end)
 end)
 
