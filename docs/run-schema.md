@@ -2,7 +2,7 @@
 
 **Status:** addon-side proposal for Platform Dev to adopt on [platform#3](https://github.com/CrusaderStrike/platform/issues/3).  
 **schemaVersion:** `1`  
-**Addon:** CrusaderStrike `0.1.0` (World of Warcraft: Forever only)
+**Addon:** CrusaderStrike `0.1.1` (World of Warcraft: Forever only)
 
 ## Goals
 
