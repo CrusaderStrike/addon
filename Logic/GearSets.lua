@@ -557,14 +557,21 @@ function G.ApplyOpsResult(charDB, local_id, result)
   if not list or type(result) ~= "table" then
     return nil, "validation"
   end
-  -- Top-level transport / auth failure from companion (API down, session expired).
+  -- Top-level transport / auth failure from companion (platform#51/#52 envelope or legacy).
   -- Do not touch pending_ops; clear syncing and surface a player-visible message.
   if result.error ~= nil then
-    local code = result.error
-    if type(result.error) == "table" then
-      code = result.error.code or result.error.reason or "api_unavailable"
+    local err = result.error
+    local request_id = result.request_id
+    if type(err) == "table" and type(err.request_id) == "string" then
+      request_id = request_id or err.request_id
     end
-    return G.FailSync(charDB, local_id, code)
+    return G.FailSync(charDB, local_id, err, {
+      http_status = result.http_status or result.status,
+      retry_after = result.retry_after,
+      headers = result.headers,
+      retryable = result.retryable,
+      request_id = request_id,
+    })
   end
   list.pending_ops = list.pending_ops or {}
   if type(list.version) ~= "number" then
@@ -979,21 +986,44 @@ function G.BeginSync(charDB, local_id)
   return list
 end
 
-function G.FailSync(charDB, local_id, code)
+--[[
+  Fail a companion /sync attempt.
+  code_or_detail: platform#51/#52 envelope / error table / string code (see ParseErrorEnvelope).
+  meta: optional { http_status, retry_after, headers, retryable, request_id }.
+  Keeps pending_ops; clears syncing; stores last_sync_error for UI.
+]]
+function G.FailSync(charDB, local_id, code_or_detail, meta)
   local list = G.FindByLocalId(charDB, local_id)
   if not list then
     return nil, "validation"
   end
   list.syncing = false
-  local msg
-  if CrusaderStrikeGearEncoder and CrusaderStrikeGearEncoder.SyncErrorMessage then
-    msg = CrusaderStrikeGearEncoder.SyncErrorMessage(code)
-  elseif CrusaderStrikeGearEncoder and CrusaderStrikeGearEncoder.RejectMessage then
-    msg = CrusaderStrikeGearEncoder.RejectMessage(code)
+
+  local parsed
+  if CrusaderStrikeGearEncoder and CrusaderStrikeGearEncoder.ParseErrorEnvelope then
+    parsed = CrusaderStrikeGearEncoder.ParseErrorEnvelope(code_or_detail, meta)
   else
-    msg = tostring(code or "api_unavailable")
+    local code = code_or_detail
+    if type(code_or_detail) == "table" then
+      code = code_or_detail.code or code_or_detail.reason or "api_unavailable"
+    end
+    local msg
+    if CrusaderStrikeGearEncoder and CrusaderStrikeGearEncoder.SyncErrorMessage then
+      msg = CrusaderStrikeGearEncoder.SyncErrorMessage(code)
+    else
+      msg = tostring(code or "api_unavailable")
+    end
+    parsed = { code = code, message = msg, retryable = false, retry_after = nil }
   end
-  local err = { code = code, message = msg, at = now_iso() }
+
+  local err = {
+    code = parsed.code,
+    message = parsed.message,
+    retryable = parsed.retryable,
+    retry_after = parsed.retry_after,
+    request_id = parsed.request_id,
+    at = now_iso(),
+  }
   list.last_sync_error = err
   local bucket = G.EnsureDB(charDB)
   if bucket then
@@ -1004,8 +1034,11 @@ function G.FailSync(charDB, local_id, code)
     pending_n = #list.pending_ops
   end
   return {
-    code = code,
-    message = msg,
+    code = parsed.code,
+    message = parsed.message,
+    retryable = parsed.retryable,
+    retry_after = parsed.retry_after,
+    request_id = parsed.request_id,
     pending_kept = pending_n,
     syncing = false,
   }

@@ -507,13 +507,20 @@ function UI.Hide()
   end
 end
 
--- Companion /sync transport failure (API down, session/token expired).
+-- Companion /sync transport failure (platform#51 envelope or legacy code).
 -- Keeps pending_ops; clears stuck syncing; prints a player-visible message.
-function UI.NotifySyncFailure(local_id, code)
+function UI.NotifySyncFailure(local_id, code_or_detail, meta)
   ensure_ui()
-  local summary, err = CrusaderStrikeGearSets.FailSync(char_db(), local_id, code)
+  local summary, err = CrusaderStrikeGearSets.FailSync(char_db(), local_id, code_or_detail, meta)
   if not summary then
-    local msg = (CrusaderStrikeGearEncoder and CrusaderStrikeGearEncoder.SyncErrorMessage(code)) or tostring(err or code)
+    local msg
+    if CrusaderStrikeGearEncoder and CrusaderStrikeGearEncoder.ParseErrorEnvelope then
+      msg = CrusaderStrikeGearEncoder.ParseErrorEnvelope(code_or_detail, meta).message
+    elseif CrusaderStrikeGearEncoder and CrusaderStrikeGearEncoder.SyncErrorMessage then
+      msg = CrusaderStrikeGearEncoder.SyncErrorMessage(code_or_detail)
+    else
+      msg = tostring(err or code_or_detail)
+    end
     set_status(msg)
     if CS.Print then
       CS.Print(msg)

@@ -93,6 +93,11 @@ local REJECT_MESSAGES = {
   token_expired = "Your website session expired. Sign in again on crusaderstrike.com; local gear changes are kept.",
   unauthorized = "Not signed in to Crusader Strike. Sign in on the website; local gear changes are kept.",
   unauthenticated = "Not signed in to Crusader Strike. Sign in on the website; local gear changes are kept.",
+  -- platform#51/#52 stable codes (gear-lists /ops /sync, selection, items)
+  upstream_unavailable = "Crusader Strike or Battle.net is temporarily unavailable. Gear changes are saved locally and will retry.",
+  rate_limited = "Crusader Strike rate limit reached. Gear changes are saved locally; try again soon.",
+  version_mismatch = "This gear set changed on the website. Local changes are kept — sync again to reload and retry.",
+  internal_error = "Crusader Strike hit an unexpected error. Gear changes are saved locally and will retry.",
 }
 
 function GE.RejectMessage(code)
@@ -106,9 +111,210 @@ function GE.RejectMessage(code)
   return "Import rejected (" .. tostring(code) .. ")."
 end
 
--- Alias used by companion /sync callers (same table; clearer name).
+-- Companion /sync player-facing text (sync-specific fallback; not "Import rejected").
 function GE.SyncErrorMessage(code)
-  return GE.RejectMessage(code)
+  local msg = REJECT_MESSAGES[code]
+  if msg then
+    return msg
+  end
+  if code == nil or code == "" then
+    return REJECT_MESSAGES.api_unavailable
+  end
+  return "Crusader Strike sync failed (" .. tostring(code) .. "). Gear changes are saved locally and will retry."
+end
+
+local function parse_retry_after(v)
+  if type(v) == "number" and v == math.floor(v) and v >= 0 then
+    return v
+  end
+  if type(v) == "string" then
+    local n = tonumber(v)
+    if n and n == math.floor(n) and n >= 0 then
+      return n
+    end
+  end
+  return nil
+end
+
+local function header_retry_after(headers)
+  if type(headers) ~= "table" then
+    return nil
+  end
+  local v = headers["Retry-After"] or headers["retry-after"] or headers["RETRY-AFTER"]
+  return parse_retry_after(v)
+end
+
+local function default_retryable(code)
+  if code == "unauthenticated" or code == "unauthorized"
+      or code == "session_expired" or code == "token_expired" then
+    return false
+  end
+  if code == "upstream_unavailable" or code == "api_unavailable"
+      or code == "api_down" or code == "network_error"
+      or code == "rate_limited" or code == "version_mismatch"
+      or code == "internal_error" then
+    return true
+  end
+  return false
+end
+
+local function infer_code_from_status(status, hint)
+  if status == 401 then
+    if type(hint) == "string" then
+      local h = string.lower(hint)
+      if h:find("expir", 1, true) or h:find("revok", 1, true) or h:find("token", 1, true) then
+        return "session_expired"
+      end
+    end
+    return "unauthenticated"
+  end
+  if status == 429 then
+    return "rate_limited"
+  end
+  if status == 500 then
+    return "internal_error"
+  end
+  if status == 502 or status == 503 or status == 504 then
+    return "upstream_unavailable"
+  end
+  -- 409 has several stable codes (version_mismatch, character_not_displayed,
+  -- list_limit_reached); only infer when the hint clearly points at version.
+  if status == 409 and type(hint) == "string" then
+    local h = string.lower(hint)
+    if h:find("version", 1, true) or h:find("mismatch", 1, true) or h:find("concurrent", 1, true) then
+      return "version_mismatch"
+    end
+  end
+  return nil
+end
+
+--[[
+  Normalize platform#51/#52 error envelopes for FailSync / companion /sync.
+
+  Contract (platform#52 / docs/api-errors.md):
+    {"error": {"code": "<stable_code>", "message": "...", "retryable": bool, "request_id": "req_…"}}
+  Also tolerates legacy shapes (string code, {reason=}, bare http_status / Retry-After).
+
+  input: string code | error table | full body with .error | nil
+  meta:  optional { http_status|status=, retry_after=, headers=, request_id=, retryable= }
+
+  Returns { code, message, retryable, retry_after, request_id }
+  (retry_after / request_id may be nil).
+]]
+function GE.ParseErrorEnvelope(input, meta)
+  if type(meta) ~= "table" then
+    meta = {}
+  end
+
+  local err = input
+  if type(input) == "table" and input.error ~= nil then
+    err = input.error
+  end
+
+  local code, server_message, retryable
+  if type(err) == "string" then
+    code = err
+  elseif type(err) == "table" then
+    code = err.code or err.reason
+    if type(err.message) == "string" and #err.message > 0 then
+      server_message = err.message
+    end
+    if err.retryable ~= nil then
+      retryable = not not err.retryable
+    end
+  elseif err ~= nil then
+    code = tostring(err)
+  end
+
+  local status = meta.http_status or meta.status
+  if type(input) == "table" then
+    status = status or input.http_status or input.status
+  end
+  if type(status) == "string" then
+    status = tonumber(status)
+  end
+
+  local hint = server_message
+  if type(err) == "table" and type(err.reason) == "string" then
+    hint = hint or err.reason
+  end
+  if (code == nil or code == "") and type(status) == "number" then
+    code = infer_code_from_status(status, hint)
+  end
+  if code == nil or code == "" then
+    code = "api_unavailable"
+  end
+
+  -- Alias legacy auth names onto platform#51 codes (api_down/network_error stay distinct).
+  if code == "unauthorized" then
+    code = "unauthenticated"
+  elseif code == "token_expired" then
+    code = "session_expired"
+  end
+
+  local retry_after = parse_retry_after(meta.retry_after)
+  if retry_after == nil and type(input) == "table" then
+    retry_after = parse_retry_after(input.retry_after)
+  end
+  if retry_after == nil and type(err) == "table" then
+    retry_after = parse_retry_after(err.retry_after)
+  end
+  if retry_after == nil then
+    retry_after = header_retry_after(meta.headers)
+  end
+  if retry_after == nil and type(input) == "table" then
+    retry_after = header_retry_after(input.headers)
+  end
+
+  -- Explicit retryable from envelope wins; else meta; else code defaults.
+  if retryable == nil and meta.retryable ~= nil then
+    retryable = not not meta.retryable
+  end
+  if retryable == nil and type(input) == "table" and input.retryable ~= nil then
+    retryable = not not input.retryable
+  end
+  if retryable == nil then
+    retryable = default_retryable(code)
+  end
+
+  local request_id
+  if type(meta.request_id) == "string" and #meta.request_id > 0 then
+    request_id = meta.request_id
+  end
+  if request_id == nil and type(err) == "table" and type(err.request_id) == "string" and #err.request_id > 0 then
+    request_id = err.request_id
+  end
+  if request_id == nil and type(input) == "table" and type(input.request_id) == "string" and #input.request_id > 0 then
+    request_id = input.request_id
+  end
+
+  local message = GE.SyncErrorMessage(code)
+  -- Prefer catalog copy for known codes; unknown codes may use server message.
+  if REJECT_MESSAGES[code] == nil and server_message then
+    message = server_message
+  end
+  if code == "upstream_unavailable" then
+    if retry_after ~= nil then
+      message = GE.SyncErrorMessage("upstream_unavailable")
+        .. " Try again in " .. tostring(retry_after) .. " seconds."
+    elseif not retryable then
+      message = "Crusader Strike or Battle.net is unavailable right now. Gear changes are saved locally; try again later."
+    end
+  elseif code == "rate_limited" and retry_after ~= nil then
+    message = GE.SyncErrorMessage("rate_limited")
+      .. " Try again in " .. tostring(retry_after) .. " seconds."
+  elseif code == "internal_error" and retry_after ~= nil then
+    message = GE.SyncErrorMessage("internal_error")
+      .. " Try again in " .. tostring(retry_after) .. " seconds."
+  end
+
+  return {
+    code = code,
+    message = message,
+    retryable = retryable,
+    retry_after = retry_after,
+    request_id = request_id,
+  }
 end
 
 local function u32(n)
