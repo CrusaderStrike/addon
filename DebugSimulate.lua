@@ -25,6 +25,8 @@ CS.DebugSimulate = CS.DebugSimulate or {}
 local Sim = CS.DebugSimulate
 
 local DEFAULT_INSTANCE = 389 -- Ragefire Chasm
+local MAX_SANDBOX_RUNS = 5 -- keep only the newest simulated runs for inspection
+Sim.MAX_SANDBOX_RUNS = MAX_SANDBOX_RUNS
 
 local function now()
   if GetServerTime then
@@ -74,8 +76,27 @@ function Sim.FindEncounter(bossName)
   return nil
 end
 
+-- Delete all but the newest MAX_SANDBOX_RUNS simulated runs.
+function Sim.PruneSandboxRuns(charDB)
+  local sims = {}
+  for key, run in pairs(charDB.runs or {}) do
+    if run.simulated then
+      sims[#sims + 1] = { key = key, t = run.startedAt or 0 }
+    end
+  end
+  table.sort(sims, function(a, b)
+    if a.t ~= b.t then return a.t > b.t end
+    return a.key > b.key
+  end)
+  for i = MAX_SANDBOX_RUNS + 1, #sims do
+    if charDB.activeRunKey ~= sims[i].key then
+      charDB.runs[sims[i].key] = nil
+    end
+  end
+end
+
 -- Run fn inside a sandbox run (simulated=true) made active for the duration;
--- afterwards close it and restore the previous activeRunKey.
+-- afterwards abandon it, prune old sandboxes and restore the previous activeRunKey.
 local function with_sandbox(instanceId, instanceName, fn)
   local charDB = CS.GetCharDB()
   local prevKey = charDB.activeRunKey
@@ -107,8 +128,12 @@ local function with_sandbox(instanceId, instanceName, fn)
   if run.status == "in_progress" then
     CrusaderStrikeRunLifecycle.Close(run, now())
   end
+  -- Sandbox runs end abandoned so they can never be resumed by real play
+  -- (ShouldResume also skips run.simulated), and old ones are pruned.
+  run.status = "abandoned"
   charDB.runs[run.idempotencyKey] = run
   charDB.activeRunKey = prevKey
+  Sim.PruneSandboxRuns(charDB)
   if not ok then
     error(res, 0)
   end

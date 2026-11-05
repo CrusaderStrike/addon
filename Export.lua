@@ -133,6 +133,9 @@ end
 
 function Ex.BuildString(run)
   local payload = CrusaderStrikeRunLifecycle.ToExportTable(run)
+  if not payload then
+    return nil
+  end
   return CrusaderStrikeEncoder.EncodeRun(payload)
 end
 

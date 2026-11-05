@@ -154,6 +154,11 @@ function CrusaderStrikeRunLifecycle.ShouldResume(activeOrLast, instanceId, nowUn
   if not activeOrLast then
     return false
   end
+  -- Simulated (/cs debug simulate) sandbox runs are never resumable: real
+  -- logging attached to a sim- run would be refused by IsUploadable forever.
+  if activeOrLast.simulated then
+    return false
+  end
   if activeOrLast.instance.id ~= instanceId then
     return false
   end
@@ -249,6 +254,10 @@ end
 
 function CrusaderStrikeRunLifecycle.ToExportTable(run, opts)
   local includeSim = opts and opts.includeSimulated or false
+  -- Defense in depth: never build an envelope for a simulated run unless asked.
+  if run.simulated and not includeSim then
+    return nil
+  end
   local abandoned = run.status == "abandoned"
   return {
     schemaVersion = run.schemaVersion or SCHEMA_VERSION,

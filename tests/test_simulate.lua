@@ -158,3 +158,67 @@ describe("simulated records excluded from export/upload", function()
     ok(printed[2] and printed[2]:find("simulated", 1, true), "explicit key refused")
   end)
 end)
+
+describe("simulated sandbox runs are never resumed (review 5780402317)", function()
+  local function enter_rfc()
+    local origII, origGI = IsInInstance, GetInstanceInfo
+    _G.IsInInstance = function() return true, "party" end
+    _G.GetInstanceInfo = function() return "Ragefire Chasm", "party", 1, "Normal", 5, 0, false, 389 end
+    local okc, err = pcall(CS.DungeonLog.TryStartOrResume)
+    _G.IsInInstance, _G.GetInstanceInfo = origII, origGI
+    ok(okc, tostring(err))
+  end
+
+  it("ShouldResume refuses a simulated run even if closed and inside the window", function()
+    local run = RL.Start({ realm = "R", character = "C", gameVersion = "forever", instanceId = 389,
+      instanceName = "Ragefire Chasm", difficulty = 1, startTimeUnix = os.time(), party = {} })
+    RL.Close(run, os.time())
+    eq(run.status, "closed")
+    ok(RL.ShouldResume(run, 389, os.time(), 10800), "real closed run resumable")
+    run.simulated = true
+    ok(not RL.ShouldResume(run, 389, os.time(), 10800), "simulated run not resumable")
+  end)
+
+  for _, kind in ipairs({ "kill", "death" }) do
+    it("entering RFC after simulate " .. kind .. " starts a fresh real run", function()
+      reset()
+      CrusaderStrikeDB.settings.debug = true
+      local okk, msg, sim
+      if kind == "kill" then okk, msg, sim = CS.DebugSimulate.Kill("oggle")
+      else okk, msg, sim = CS.DebugSimulate.Death() end
+      ok(okk, tostring(msg))
+      eq(sim.status, "abandoned", "sandbox abandoned on exit")
+      ok(not RL.ShouldResume(sim, 389, os.time(), 10800), "sandbox not resume-eligible")
+      enter_rfc()
+      local key = CrusaderStrikeCharDB.activeRunKey
+      ok(key and key ~= sim.idempotencyKey, "did not resume sandbox")
+      local live = CrusaderStrikeCharDB.runs[key]
+      ok(live and not live.simulated, "live run is real")
+      eq(live.status, "in_progress")
+      ok(RL.IsUploadable(live), "live run uploadable")
+      eq(sim.status, "abandoned", "sandbox untouched")
+      ok(not key:find("^sim%-"), "no sim- key")
+    end)
+  end
+
+  it("ToExportTable refuses a simulated run unless includeSimulated", function()
+    local run = { simulated = true, status = "abandoned", instance = { id = 389 }, bosses = {}, deaths = {} }
+    eq(RL.ToExportTable(run), nil)
+    ok(RL.ToExportTable(run, { includeSimulated = true }), "opt-in envelope")
+  end)
+
+  it("prunes sandbox runs beyond the cap", function()
+    reset()
+    CrusaderStrikeDB.settings.debug = true
+    local cap = CS.DebugSimulate.MAX_SANDBOX_RUNS
+    for i = 1, cap + 3 do
+      CrusaderStrikeCharDB.runs["sim-old" .. i] = { simulated = true, startedAt = i, status = "abandoned", instance = { id = 389 } }
+    end
+    CrusaderStrikeCharDB.runs["real"] = { status = "closed", startedAt = 1, instance = { id = 389 } }
+    CS.DebugSimulate.Kill()
+    local sims = 0
+    for _, r in pairs(CrusaderStrikeCharDB.runs) do if r.simulated then sims = sims + 1 end end
+    eq(sims, cap, "capped")
+    ok(CrusaderStrikeCharDB.runs["real"], "real run kept")
+  end)
+end)

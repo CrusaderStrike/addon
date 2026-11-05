@@ -272,6 +272,6 @@ SlashCmdList["CRUSADERSTRIKE"] = function(msg)
     end
     CS.Print("Imported gear sets (" .. tostring(#(payload.lists or {})) .. " lists)")
   else
-    CS.Print("Commands: /cs loot | /cs gearsets | /cs export [key] | /cs import <CSGEAR1> | /cs status | /cs pvp | /cs debug | /cs debug events [on|off|dump]")
+    CS.Print("Commands: /cs loot | /cs wishlist | /cs gearsets | /cs import <CSGEAR1> | /cs export [key] | /cs status | /cs pvp | /cs debug [on|off] | /cs debug simulate kill [boss]|death [unit] | /cs debug events [on|off|dump]")
   end
 end
