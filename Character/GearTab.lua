@@ -22,7 +22,9 @@
 --
 -- Weapon equip uses vanilla class proficiency (Forever 1.60.1 / Classic):
 -- a Druid cannot take swords or crossbows, and nobody can wear two main-hand
--- weapons. Armor class filters are out of scope.
+-- weapons. Armor is class-only, with no level gate: druid/rogue wear cloth
+-- and leather; shaman/hunter also mail at any level; paladin/warrior also
+-- plate; mage/priest/warlock cloth only.
 -- Left-click a browser item to equip it into the current gear set; right-click
 -- a CS gear-set slot to unequip. AtlasLoot Classic data.lua is a layout
 -- reference only (GPL-2.0). See docs/character-gear-tab.md.
@@ -829,6 +831,28 @@ local SUBTYPE_TO_SUB = {
   ["fishing pole"] = SUB.FISH,
 }
 
+-- Armor item class 4. Subclasses are cloth/leather/mail/plate only.
+-- Shields and relics are not gated here. There is no level check:
+-- shaman and hunter may wear mail at level 1, and plate has no 40 gate.
+local ARMOR_SUB = { CLOTH = 1, LEATHER = 2, MAIL = 3, PLATE = 4 }
+local ARMOR_NAME = {
+  cloth = ARMOR_SUB.CLOTH,
+  leather = ARMOR_SUB.LEATHER,
+  mail = ARMOR_SUB.MAIL,
+  plate = ARMOR_SUB.PLATE,
+}
+local ARMOR_ALLOWED = {
+  MAGE = { [ARMOR_SUB.CLOTH] = true },
+  PRIEST = { [ARMOR_SUB.CLOTH] = true },
+  WARLOCK = { [ARMOR_SUB.CLOTH] = true },
+  DRUID = { [ARMOR_SUB.CLOTH] = true, [ARMOR_SUB.LEATHER] = true },
+  ROGUE = { [ARMOR_SUB.CLOTH] = true, [ARMOR_SUB.LEATHER] = true },
+  SHAMAN = { [ARMOR_SUB.CLOTH] = true, [ARMOR_SUB.LEATHER] = true, [ARMOR_SUB.MAIL] = true },
+  HUNTER = { [ARMOR_SUB.CLOTH] = true, [ARMOR_SUB.LEATHER] = true, [ARMOR_SUB.MAIL] = true },
+  PALADIN = { [ARMOR_SUB.CLOTH] = true, [ARMOR_SUB.LEATHER] = true, [ARMOR_SUB.MAIL] = true, [ARMOR_SUB.PLATE] = true },
+  WARRIOR = { [ARMOR_SUB.CLOTH] = true, [ARMOR_SUB.LEATHER] = true, [ARMOR_SUB.MAIL] = true, [ARMOR_SUB.PLATE] = true },
+}
+
 local WEAPON_LOCS = {
   INVTYPE_WEAPON = true,
   INVTYPE_2HWEAPON = true,
@@ -897,16 +921,26 @@ local function weapon_record(itemId)
       if type(itemSubType) == "string" and itemSubType ~= "" then
         rec.subType = itemSubType
       end
-      if type(itemType) == "string" and itemType:lower() == "weapon" then
-        rec.classID = 2
+      if type(itemType) == "string" then
+        local kind = itemType:lower()
+        if kind == "weapon" then
+          rec.classID = 2
+        elseif kind == "armor" then
+          rec.classID = 4
+        end
       end
     end
   end
   if type(GetItemInfo) == "function" and not rec.subClassID then
     local ok, _, _, _, _, _, classStr, subStr, _, equipLoc = pcall(GetItemInfo, itemId)
     if ok then
-      if type(classStr) == "string" and classStr:lower() == "weapon" then
-        rec.classID = 2
+      if type(classStr) == "string" then
+        local kind = classStr:lower()
+        if kind == "weapon" then
+          rec.classID = 2
+        elseif kind == "armor" then
+          rec.classID = 4
+        end
       end
       if type(subStr) == "string" and subStr ~= "" then
         rec.subType = rec.subType or subStr
@@ -927,6 +961,59 @@ local function weapon_record(itemId)
     return nil
   end
   return rec
+end
+
+local function armor_record(itemId)
+  itemId = tonumber(itemId)
+  if not itemId or type(GetItemInfoInstant) ~= "function" then
+    -- Fall through to the shared instant/GetItemInfo read below when present.
+  end
+  local rec = {}
+  if type(GetItemInfoInstant) == "function" then
+    local ok, _, itemType, itemSubType, _, _, classID, subClassID = pcall(GetItemInfoInstant, itemId)
+    if ok then
+      if type(classID) == "number" then
+        rec.classID = classID
+      end
+      if type(subClassID) == "number" then
+        rec.subClassID = subClassID
+      end
+      if type(itemSubType) == "string" then
+        rec.subType = itemSubType
+      end
+      if type(itemType) == "string" and itemType:lower() == "armor" then
+        rec.classID = 4
+      end
+    end
+  end
+  if type(GetItemInfo) == "function" and rec.classID ~= 4 then
+    local ok, _, _, _, _, _, classStr, subStr = pcall(GetItemInfo, itemId)
+    if ok and type(classStr) == "string" and classStr:lower() == "armor" then
+      rec.classID = 4
+      if type(subStr) == "string" then
+        rec.subType = rec.subType or subStr
+      end
+    end
+  end
+  if rec.classID ~= 4 then
+    return nil
+  end
+  if rec.subClassID == nil and type(rec.subType) == "string" then
+    rec.subClassID = ARMOR_NAME[rec.subType:lower()]
+  end
+  if rec.subClassID ~= ARMOR_SUB.CLOTH and rec.subClassID ~= ARMOR_SUB.LEATHER
+      and rec.subClassID ~= ARMOR_SUB.MAIL and rec.subClassID ~= ARMOR_SUB.PLATE then
+    return nil
+  end
+  return rec
+end
+
+local function class_can_wear(classToken, subClassID)
+  local set = classToken and ARMOR_ALLOWED[classToken]
+  if not set then
+    return true
+  end
+  return set[subClassID] == true
 end
 
 local function is_two_hand(rec)
@@ -972,6 +1059,11 @@ end
 -- slot is main_hand / off_hand / ranged. Non-weapons and non-weapon slots pass.
 -- reason is "class_weapon" or "dual_mainhand".
 function UI.CheckEquip(itemId, slot, previewSlots, classToken)
+  classToken = classToken or UI.PlayerClassToken()
+  local armor = armor_record(itemId)
+  if armor and not class_can_wear(classToken, armor.subClassID) then
+    return false, "class_armor"
+  end
   if slot ~= "main_hand" and slot ~= "off_hand" and slot ~= "ranged" then
     return true
   end
@@ -979,7 +1071,6 @@ function UI.CheckEquip(itemId, slot, previewSlots, classToken)
   if not rec then
     return true
   end
-  classToken = classToken or UI.PlayerClassToken()
   previewSlots = type(previewSlots) == "table" and previewSlots or {}
   if classToken and MELEE[classToken] then
     local ok, reason = class_slot_ok(classToken, slot, rec)
@@ -1011,6 +1102,10 @@ function UI.CheckEquip(itemId, slot, previewSlots, classToken)
 end
 
 function UI.AcceptsWeapon(itemId, gearSlot, classToken)
+  classToken = classToken or UI.PlayerClassToken()
+  if armor_record(itemId) then
+    return UI.CheckEquip(itemId, gearSlot or "chest", {}, classToken) and true or false
+  end
   if not weapon_record(itemId) then
     return true
   end
@@ -1040,6 +1135,9 @@ local function reject_status(reason, classToken)
   local label = "This class"
   if type(classToken) == "string" and classToken ~= "" then
     label = classToken:sub(1, 1) .. classToken:sub(2):lower()
+  end
+  if reason == "class_armor" then
+    return label .. " cannot equip that armor."
   end
   return label .. " cannot equip that weapon."
 end
@@ -1641,39 +1739,6 @@ local function ensure_ui()
     dollFrame:Show()
   end
 
-  -- Gear Sets / Browser / Stats. Reparented onto the sidebar once it exists
-  -- so they share the PaperDoll sidebar-tab row (33x35, 4px gap, right-aligned).
-  local iconRow = CreateFrame("Frame", "CrusaderStrikeGearIconRow", root)
-  iconRow:SetSize((UI.SIDEBAR_TAB_W * 3) + (UI.SIDEBAR_TAB_GAP * 2), UI.SIDEBAR_TAB_H)
-  iconRow:SetPoint("TOPLEFT", root, "TOPLEFT", 0, 0)
-  if iconRow.EnableMouse then
-    iconRow:EnableMouse(true)
-  end
-  if iconRow.SetFrameLevel then
-    iconRow:SetFrameLevel(40)
-  end
-  if iconRow.Show then
-    iconRow:Show()
-  end
-
-  topSetsBtn = add_icon_button(iconRow, "CrusaderStrikeGearSetsIcon", GEAR_SETS_ICON, "Gear Sets")
-  topSetsBtn:SetPoint("LEFT", iconRow, "LEFT", 0, 0)
-  topSetsBtn:SetScript("OnClick", function()
-    UI.TogglePane("sets")
-  end)
-
-  topBrowserBtn = add_icon_button(iconRow, "CrusaderStrikeGearBrowserIcon", BROWSER_ICON, "Browser")
-  topBrowserBtn:SetPoint("LEFT", topSetsBtn, "RIGHT", 4, 0)
-  topBrowserBtn:SetScript("OnClick", function()
-    UI.TogglePane("browser")
-  end)
-
-  topStatsBtn = add_icon_button(iconRow, "CrusaderStrikeGearStatsIcon", STATS_ICON, "Stats")
-  topStatsBtn:SetPoint("LEFT", topBrowserBtn, "RIGHT", 4, 0)
-  topStatsBtn:SetScript("OnClick", function()
-    UI.TogglePane("stats")
-  end)
-
   -- CharacterFrame InsetRight: 177 wide, full height of the PaperDoll pane.
   popout = CreateFrame("Frame", "CrusaderStrikeGearPopout", root, "BackdropTemplate")
   popout._csInFrameColumn = true
@@ -1691,14 +1756,36 @@ local function ensure_ui()
     popout:SetFrameLevel(30)
   end
 
+  -- Mode buttons exist only on the right pane, at its top, above the
+  -- sets / browser / stats body. They are not placed over the slot grid.
+  local iconRow = CreateFrame("Frame", "CrusaderStrikeGearIconRow", popout)
+  iconRow:SetSize((UI.SIDEBAR_TAB_W * 3) + (UI.SIDEBAR_TAB_GAP * 2), UI.SIDEBAR_TAB_H)
+  -- Level with the first slot row, not in the band above the gear grid.
+  iconRow:SetPoint("TOPRIGHT", popout, "TOPRIGHT", -6, SLOT_TOP_Y)
+  if iconRow.EnableMouse then
+    iconRow:EnableMouse(true)
+  end
+  if iconRow.SetFrameLevel then
+    iconRow:SetFrameLevel(40)
+  end
+  if iconRow.Show then
+    iconRow:Show()
+  end
+
+  topSetsBtn = add_icon_button(iconRow, "CrusaderStrikeGearSetsIcon", GEAR_SETS_ICON, "Gear Sets")
+  topSetsBtn:SetScript("OnClick", function()
+    UI.TogglePane("sets")
+  end)
+  topBrowserBtn = add_icon_button(iconRow, "CrusaderStrikeGearBrowserIcon", BROWSER_ICON, "Browser")
+  topBrowserBtn:SetScript("OnClick", function()
+    UI.TogglePane("browser")
+  end)
+  topStatsBtn = add_icon_button(iconRow, "CrusaderStrikeGearStatsIcon", STATS_ICON, "Stats")
+  topStatsBtn:SetScript("OnClick", function()
+    UI.TogglePane("stats")
+  end)
+
   -- Sidebar tab row sits in the pane, same slot as Stats / Titles / Equipment.
-  if iconRow.SetParent then
-    iconRow:SetParent(popout)
-  end
-  if iconRow.ClearAllPoints then
-    iconRow:ClearAllPoints()
-  end
-  iconRow:SetPoint("TOPRIGHT", popout, "TOPRIGHT", -6, -4)
   local function size_sidebar_tab(btn)
     btn:SetSize(UI.SIDEBAR_TAB_W, UI.SIDEBAR_TAB_H)
     if btn.ClearAllPoints then
@@ -1712,7 +1799,7 @@ local function ensure_ui()
   topBrowserBtn:SetPoint("RIGHT", topStatsBtn, "LEFT", -UI.SIDEBAR_TAB_GAP, 0)
   topSetsBtn:SetPoint("RIGHT", topBrowserBtn, "LEFT", -UI.SIDEBAR_TAB_GAP, 0)
 
-  local sidebarTop = -(4 + UI.SIDEBAR_TAB_H + 4)
+  local sidebarTop = SLOT_TOP_Y - UI.SIDEBAR_TAB_H - 4
   local function anchor_sidebar_panel(panel)
     if panel.ClearAllPoints then
       panel:ClearAllPoints()

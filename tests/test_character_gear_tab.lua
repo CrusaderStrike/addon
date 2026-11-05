@@ -406,7 +406,7 @@ describe("character gear tab scaffold", function()
     local sp, srel, _, _, sy = sets:GetPoint(1)
     eq(sp, "TOPLEFT")
     eq(srel, pop)
-    eq(sy, -(4 + UI.SIDEBAR_TAB_H + 4))
+    eq(sy, -76 - UI.SIDEBAR_TAB_H - 4)
 
     -- Sidebar tabs match PaperDollSidebarTabTemplate and live in the right pane.
     local iconRow = _G.CrusaderStrikeGearIconRow
@@ -416,10 +416,13 @@ describe("character gear tab scaffold", function()
     eq(_G.CrusaderStrikeGearSetsIcon:GetHeight(), UI.SIDEBAR_TAB_H)
     eq(_G.CrusaderStrikeGearBrowserIcon:GetWidth(), UI.SIDEBAR_TAB_W)
     eq(_G.CrusaderStrikeGearStatsIcon:GetWidth(), UI.SIDEBAR_TAB_W)
-    local ip, irel, irp = iconRow:GetPoint(1)
+    local ip, irel, irp, _, iy = iconRow:GetPoint(1)
     eq(ip, "TOPRIGHT")
     eq(irel, pop)
     eq(irp, "TOPRIGHT")
+    eq(iy, -76)
+    eq(irel == root, false)
+    eq(irel == _G.CrusaderStrikeGearDoll, false)
 
     local function slot_point(btn)
       return btn:GetPoint(1)
@@ -619,6 +622,75 @@ describe("character gear tab scaffold", function()
     eq(UI.AcceptsWeapon(14148, nil, "DRUID"), true)
 
     _G.UnitClass = prevClass
+    _G.GetItemInfoInstant = prevInfo
+    _G.CharacterFrame = prevChar
+  end)
+
+  it("allows armor by class with no level gate", function()
+    local UI = CrusaderStrike.CharacterGearTab
+    local prevClass = _G.UnitClass
+    local prevLevel = _G.UnitLevel
+    local prevInfo = _G.GetItemInfoInstant
+    local prevChar = _G.CharacterFrame
+    _G.UnitLevel = function() return 1 end
+    _G.CharacterFrame = {
+      ModeTabs = { Tabs = {} },
+      shown = true,
+      IsShown = function(self) return self.shown end,
+    }
+    local info = {
+      [910001] = { "Armor", "Cloth", "INVTYPE_CHEST", 4, 1 },
+      [910002] = { "Armor", "Leather", "INVTYPE_CHEST", 4, 2 },
+      [910003] = { "Armor", "Mail", "INVTYPE_CHEST", 4, 3 },
+      [910004] = { "Armor", "Plate", "INVTYPE_CHEST", 4, 4 },
+    }
+    _G.GetItemInfoInstant = function(itemId)
+      local row = info[tonumber(itemId)]
+      if not row then
+        return prevInfo(itemId)
+      end
+      return itemId, row[1], row[2], row[3], "Interface\\Icons\\INV_CS_Item_" .. tostring(itemId), row[4], row[5]
+    end
+    local function clear_slots()
+      local slots = UI.GetPreview().slots
+      for slot in pairs(slots) do
+        slots[slot] = nil
+      end
+    end
+    local function wear(classToken, itemId)
+      _G.UnitClass = function() return classToken, classToken end
+      clear_slots()
+      UI.OnGearSlot("chest", "LeftButton")
+      return UI.EquipItem(itemId)
+    end
+    UI.Show()
+    local okMail, whyMail = wear("SHAMAN", 910003)
+    ok(okMail)
+    eq(UI.GetPreview().slots.chest, 910003)
+    local okPlate, whyPlate = wear("SHAMAN", 910004)
+    eq(okPlate, false)
+    eq(whyPlate, "class_armor")
+    eq(UI.GetPreview().slots.chest, nil)
+    local okDruidMail, whyDruid = wear("DRUID", 910003)
+    eq(okDruidMail, false)
+    eq(whyDruid, "class_armor")
+    ok(wear("DRUID", 910002))
+    eq(wear("MAGE", 910001), true)
+    eq(select(1, wear("MAGE", 910002)), false)
+    ok(wear("WARRIOR", 910004))
+    ok(wear("PALADIN", 910004))
+    ok(wear("HUNTER", 910003))
+    eq(select(1, wear("ROGUE", 910003)), false)
+    ok(wear("ROGUE", 910002))
+    ok(wear("PRIEST", 910001))
+    eq(select(1, wear("PRIEST", 910004)), false)
+    eq(select(1, wear("WARLOCK", 910002)), false)
+    eq(UI.AcceptsWeapon(910003, "chest", "SHAMAN"), true)
+    eq(UI.AcceptsWeapon(910003, nil, "DRUID"), false)
+    eq(UI.AcceptsWeapon(910004, "chest", "WARRIOR"), true)
+    eq(UI.AcceptsWeapon(910001, "chest", "MAGE"), true)
+    _G.UnitClass = prevClass
+    _G.UnitLevel = prevLevel
     _G.GetItemInfoInstant = prevInfo
     _G.CharacterFrame = prevChar
   end)
