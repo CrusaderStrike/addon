@@ -18,6 +18,7 @@ dofile(addon_root .. "Data/Bosses.lua")
 dofile(addon_root .. "Logic/Idempotency.lua")
 dofile(addon_root .. "Logic/Encoder.lua")
 dofile(addon_root .. "Logic/RunLifecycle.lua")
+dofile(addon_root .. "Logic/PvpHistory.lua")
 
 local passed, failed = 0, 0
 local current = "?"
@@ -66,6 +67,8 @@ local files = {
   "test_encoder.lua",
   "test_lifecycle.lua",
   "test_bosses.lua",
+  "test_pvp.lua",
+  "test_pvp_events.lua",
 }
 
 io.write("CrusaderStrike tests (Lua " .. _VERSION .. ")\n")

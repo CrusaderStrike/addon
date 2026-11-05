@@ -180,3 +180,6 @@ A companion uploader can parse these Lua tables, skip keys already ACK'd, and PO
 | schemaVersion | Notes |
 |---------------|-------|
 | 1 | Initial WoW Forever dungeon run schema + `CSRUN1` export. Amended by addon#8 (no wire change): local-only `abandoned` status and `lastSeenAt` in SavedVariables; abandoned runs export as `closed` with `completed: false`. |
+
+### SavedVariables v2 (groomed ticket A)
+`CrusaderStrikeCharDB.schemaVersion` / `CrusaderStrikeDB.schemaVersion` are now `2` because v2 adds `CrusaderStrikeCharDB.pvp` (see [pvp-schema.md](pvp-schema.md)). The run export payload above keeps `schemaVersion: 1`.

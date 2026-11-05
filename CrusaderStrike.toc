@@ -7,7 +7,7 @@
 ## SavedVariablesPerCharacter: CrusaderStrikeCharDB
 ## AllowLoadGameType: forever, camelot
 ## X-GameVersions: forever
-## X-SchemaVersion: 1
+## X-SchemaVersion: 2
 # Interface 16001: Forever client 1.60.1 (Warcraft Wiki TOC Forever Beta/Test;
 # wago.tools Forever build 1.60.1.70790). See docs/sources.md.
 
@@ -15,6 +15,8 @@ Data\Bosses.lua
 Logic\Idempotency.lua
 Logic\Encoder.lua
 Logic\RunLifecycle.lua
+Logic\PvpHistory.lua
 Core.lua
 DungeonLog.lua
 Export.lua
+PvpLog.lua

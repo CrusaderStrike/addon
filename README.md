@@ -26,6 +26,17 @@ Addon for **World of Warcraft: Forever only** that logs dungeon runs for the Cru
 | `docs/sources.md` | Citations for client/dungeon data |
 | `docs/companion-app-issue.md` | Draft issue for companion uploader |
 
+## PvP history (`/cs pvp`)
+
+World PvP kills/deaths and battlegrounds are saved to `CrusaderStrikeCharDB.pvp`; see [docs/pvp-schema.md](docs/pvp-schema.md). Forever limits accepted by PM (combat log isn't readable by addons on 1.60.1):
+
+- (a) Kills and assists can't be told apart; every honorable-kill credit is a `kill`.
+- (b) Pet-only kills can't be excluded.
+- (c) Dishonorable kills aren't recorded.
+- (d) The killer on a death only comes from your current target (`killer_source = "target"`).
+
+These get revisited if a later Forever build unprotects the combat log.
+
 ## Develop / test
 
 ```bash

@@ -95,9 +95,11 @@ function M.load_addon()
     "Logic/Idempotency.lua",
     "Logic/Encoder.lua",
     "Logic/RunLifecycle.lua",
+    "Logic/PvpHistory.lua",
     "Core.lua",
     "DungeonLog.lua",
     "Export.lua",
+    "PvpLog.lua",
   }
   for _, rel in ipairs(files) do
     local path = base .. "/" .. rel
