@@ -91,7 +91,7 @@ Examples:
 | `startedAt` / `endedAt` | int/null | start yes | Unix seconds |
 | `durationSec` | int/null | no | `endedAt - startedAt` when closed |
 | `completed` | bool | yes | Final boss from bundled table killed |
-| `status` | string | yes | `in_progress` \| `closed` \| `completed` |
+| `status` | string | yes | `in_progress` \| `closed` \| `completed` (matches platform#18 `RunUpload.status`). The local-only `abandoned` status is **never** exported; abandoned runs export as `closed` with `completed: false`. |
 | `party[]` | array | yes | Snapshot at start (refreshed on roster change) |
 | `bosses[]` | array | yes | Unique by `npcId` |
 | `deaths[]` | array | yes | Party player UNIT_DIED events |
@@ -157,15 +157,18 @@ A companion uploader can parse these Lua tables, skip keys already ACK'd, and PO
 
 ## Run lifecycle (addon)
 
-1. Enter party instance → start run (or resume within `resumeWindowSec` if same `instance.id` and not `completed`).
-2. `COMBAT_LOG_EVENT_UNFILTERED` / `UNIT_DIED`:
+1. Enter party instance → start run (or resume within `resumeWindowSec` if same `instance.id` and status is `in_progress` or `closed`).
+2. While the run is active, bump internal `lastSeenAt` on combat events and zone/login pulses (not exported).
+3. `COMBAT_LOG_EVENT_UNFILTERED` / `UNIT_DIED`:
    - Creature GUID NPC id in bundled Forever boss table (`Data/Bosses.lua`) → boss kill; final boss ⇒ `completed=true`.
    - Party player death → `deaths[]`.
-3. Leave instance → `status=closed` (or remains `completed`), clear `activeRunKey`, keep row in `runs`.
+4. Leave instance cleanly → `status=closed` (or remains `completed`), clear `activeRunKey`, keep row in `runs`.
+5. Stale `in_progress` cleanup (addon#8): on `PLAYER_LOGIN` / `PLAYER_ENTERING_WORLD` / zone change, any `in_progress` run that does **not** match the current party instance (or whose `lastSeenAt` is outside `resumeWindowSec`) is marked `status=abandoned` in SavedVariables, `completed=false`, `endedAt=lastSeenAt` (no fake duration from a later login). `abandoned` is **local-only**: the export always sends such runs as `status: "closed"`, `completed: false`, so `abandoned` never appears in an export string or API payload. `lastSeenAt` is also SavedVariables-only and is not exported (`RunUpload` does not define it). `/reload` or reconnect inside the same instance within the window resumes; abandoned runs never resume.
+6. Platform ingest (platform#18): uploads are keyed by `addonRunId`. A same-key superset re-upload of an abandoned run (exported as `closed`, `completed=false`) upserts the stored row and may move `endedAt` forward; the platform allows this only while `completed=false`. If the player later runs the dungeon again, that is a **new** key (new `startedAt`): the abandoned run stays on the platform and a separate new run is added. It does not replace the abandoned one.
 
 ## Open decisions for Platform Dev
 
-1. Should ingest **update** an existing run when a richer payload arrives with the same `addon_run_id` (bosses/deaths filled in), or keep first-write-wins?
+1. ~~Should ingest **update** an existing run when a richer payload arrives with the same `addon_run_id`~~ Resolved (platform#18): unfinished runs upsert; a richer payload with the same `addon_run_id` replaces the stored row.
 2. Guild association on paste: Battle.net / guild invite code / character claim — out of scope for the addon; endpoint must define auth.
 3. Max payload size and retention for `raw_payload`.
 4. ~~Whether `gameVersion` becomes a first-class column~~ Resolved: stored as `game_version` (const `forever`) per platform#18.
@@ -174,4 +177,4 @@ A companion uploader can parse these Lua tables, skip keys already ACK'd, and PO
 
 | schemaVersion | Notes |
 |---------------|-------|
-| 1 | Initial WoW Forever dungeon run schema + `CSRUN1` export |
+| 1 | Initial WoW Forever dungeon run schema + `CSRUN1` export. Amended by addon#8 (no wire change): local-only `abandoned` status and `lastSeenAt` in SavedVariables; abandoned runs export as `closed` with `completed: false`. |
