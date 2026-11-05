@@ -4,6 +4,9 @@ All notable changes to CrusaderStrike (World of Warcraft: Forever only).
 
 ## Unreleased
 
+### Added
+- **Gear-sets harden for #26 morning check (#41):** true CSGEAR1 E2E round-trip tests (export → web id assign → re-import, `local_id→id`); Forever `CreateDefaults` / `AllowedSetTypes` for under-60 leveling+max_level dropdown; companion sync `BeginSync` / `FailSync` / `CompleteSync` with player-visible messages for API down and session/token expiry (pending_ops kept, syncing cleared — no silent stuck state).
+
 ### Removed
 - **Legacy Option A gear ops (#39):** drop `GearOps.SetMode` / `legacy` emit path (`remove_item`+`add_item`). Slot writes are `set_slot` / `clear_slot` only (same cleanup as web#46). Forever-only `/ops` wire, `op_id` + `base_version`, ack/stale/pending_ops handling unchanged. CSGEAR1 import still accepts inbound `remove_item` in `list.removes`.
 

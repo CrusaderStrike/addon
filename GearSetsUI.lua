@@ -108,6 +108,7 @@ local function open_create()
   state.creating = true
   state.local_id = nil
   local lvl = player_level()
+  local defaults = CrusaderStrikeGearSets.CreateDefaults(lvl)
   if nameBox then
     nameBox:SetText("")
   end
@@ -115,18 +116,15 @@ local function open_create()
     roleBox:SetText("")
   end
   if typeBtn then
-    if lvl >= 60 then
-      typeBtn:SetText("Type: max_level")
-    else
-      typeBtn:SetText("Type: leveling")
-    end
+    typeBtn:SetText("Type: " .. defaults.type)
   end
   if untilBox then
-    if lvl >= 60 then
-      untilBox:Hide()
-    else
+    if defaults.allow_leveling and defaults.type == "leveling" then
       untilBox:Show()
-      untilBox:SetText(tostring(math.min(60, lvl + 1)))
+      untilBox:SetText(tostring(defaults.until_level))
+    else
+      untilBox:SetText("")
+      untilBox:Hide()
     end
   end
   rebuild_dropdown_label()
@@ -139,7 +137,14 @@ local function select_set(local_id)
   state.local_id = local_id
   rebuild_dropdown_label()
   refresh_form()
-  set_status("")
+  local list = current_list()
+  if list and list.last_sync_error and list.last_sync_error.message then
+    set_status(list.last_sync_error.message)
+  elseif list and list.syncing then
+    set_status("Syncing gear changes…")
+  else
+    set_status("")
+  end
 end
 
 local function cycle_set(dir)
@@ -301,7 +306,15 @@ end
 
 local function toggle_type()
   local lvl = player_level()
-  if lvl >= 60 then
+  local allowed = CrusaderStrikeGearSets.AllowedSetTypes(lvl)
+  local can_leveling = false
+  for _, t in ipairs(allowed) do
+    if t == "leveling" then
+      can_leveling = true
+      break
+    end
+  end
+  if not can_leveling then
     typeBtn:SetText("Type: max_level")
     if untilBox then
       untilBox:Hide()
@@ -310,12 +323,14 @@ local function toggle_type()
   end
   local cur = typeBtn:GetText() or ""
   if cur:find("max_level") then
+    local defaults = CrusaderStrikeGearSets.CreateDefaults(lvl)
     typeBtn:SetText("Type: leveling")
     if untilBox then
       untilBox:Show()
-      untilBox:SetText(tostring(math.min(60, lvl + 1)))
+      untilBox:SetText(tostring(defaults.until_level))
     end
   else
+    -- Under-60 may create max_level (Forever BiS while leveling).
     typeBtn:SetText("Type: max_level")
     if untilBox then
       untilBox:Hide()
@@ -490,4 +505,53 @@ function UI.Hide()
   if frame then
     frame:Hide()
   end
+end
+
+-- Companion /sync transport failure (API down, session/token expired).
+-- Keeps pending_ops; clears stuck syncing; prints a player-visible message.
+function UI.NotifySyncFailure(local_id, code)
+  ensure_ui()
+  local summary, err = CrusaderStrikeGearSets.FailSync(char_db(), local_id, code)
+  if not summary then
+    local msg = (CrusaderStrikeGearEncoder and CrusaderStrikeGearEncoder.SyncErrorMessage(code)) or tostring(err or code)
+    set_status(msg)
+    if CS.Print then
+      CS.Print(msg)
+    end
+    return nil, err
+  end
+  set_status(summary.message)
+  if CS.Print then
+    CS.Print(summary.message)
+  end
+  return summary
+end
+
+-- Apply companion ops response and surface hard rejects / transport errors.
+function UI.ApplyOpsResult(local_id, result)
+  ensure_ui()
+  local summary, err = CrusaderStrikeGearSets.ApplyOpsResult(char_db(), local_id, result)
+  if not summary then
+    set_status("Sync failed: " .. tostring(err))
+    return nil, err
+  end
+  if summary.message and summary.pending_kept ~= nil then
+    -- FailSync shape (transport / session)
+    set_status(summary.message)
+    if CS.Print then
+      CS.Print(summary.message)
+    end
+  elseif type(summary.errors) == "table" and #summary.errors > 0 then
+    local msg = summary.errors[1].message or summary.errors[1].reason
+    set_status(msg)
+    if CS.Print then
+      for _, e in ipairs(summary.errors) do
+        CS.Print(e.message or e.reason)
+      end
+    end
+  else
+    set_status("")
+  end
+  refresh_slots()
+  return summary
 end

@@ -866,3 +866,268 @@ describe("gear ops set_slot/clear_slot (platform#46)", function()
     eq(#ops, 0)
   end)
 end)
+
+describe("CSGEAR1 end-to-end round-trip (#41)", function()
+  -- True path: CreateSet → BuildExportPayload → Encode → (web assigns id) →
+  -- Encode → Decode → ApplyImport; local_id→id preserved.
+  it("export → web id assign → re-import links local_id to server id", function()
+    local db = {
+      gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} },
+    }
+    local leveling = CrusaderStrikeGearSets.CreateSet(db, {
+      name = "Pre-BiS 40",
+      type = "leveling",
+      until_level = 40,
+      role_spec = "fury",
+    }, 25)
+    ok(leveling ~= nil)
+    local local_id = leveling.local_id
+    CrusaderStrikeGearSets.SetSlot(db, local_id, "head", 14145)
+    CrusaderStrikeGearSets.SetSlot(db, local_id, "main_hand", 19019)
+
+    -- Under-60 creating a max_level set is allowed (Forever BiS while leveling).
+    local bis = CrusaderStrikeGearSets.CreateSet(db, {
+      name = "Tank BiS",
+      type = "max_level",
+    }, 25)
+    ok(bis ~= nil, "under-60 may create max_level")
+    eq(bis.type, "max_level")
+    eq(bis.until_level, nil)
+    CrusaderStrikeGearSets.SetSlot(db, bis.local_id, "chest", 16966)
+
+    local payload = CrusaderStrikeGearSets.BuildExportPayload(db, {
+      realm = "CrusaderStrike",
+      character = "Snipy",
+      region = "us",
+      equipped = { main_hand = { item_id = 14145, enchant_id = 0 } },
+    })
+    eq(payload.schema_version, 1)
+    eq(payload.game_version, "forever")
+    eq(#payload.lists, 2)
+    eq(payload.lists[1].local_id, local_id)
+    eq(payload.lists[1].id, nil)
+    -- pending_ops / version must not ride the CSGEAR1 wire
+    eq(payload.lists[1].pending_ops, nil)
+    eq(payload.lists[1].version, nil)
+
+    local exported, enc_err = CrusaderStrikeGearEncoder.Encode(payload)
+    ok(exported ~= nil, enc_err)
+    ok(exported:sub(1, 8) == "CSGEAR1:")
+
+    -- Simulate website: decode, assign server ids + character_id, strip equipped, re-encode.
+    local web_payload, derr = CrusaderStrikeGearEncoder.Decode(exported)
+    ok(web_payload ~= nil, derr)
+    web_payload.character_id = "char_01E2EROUNDTRIPTEST00000001"
+    web_payload.equipped = nil
+    web_payload.lists[1].id = "11111111-2222-4333-8444-555555555501"
+    web_payload.lists[1].edited_in = "web"
+    web_payload.lists[1].edited_at = "2026-11-05T12:00:00Z"
+    web_payload.lists[1].version = 3
+    web_payload.lists[2].id = "11111111-2222-4333-8444-555555555502"
+    web_payload.lists[2].edited_in = "web"
+    web_payload.lists[2].edited_at = "2026-11-05T12:00:00Z"
+    -- Prefer web slot write for list 1 head (last-edited-wins)
+    web_payload.lists[1].slots.head = 14148
+
+    local reimported, rerr = CrusaderStrikeGearEncoder.Encode(web_payload)
+    ok(reimported ~= nil, rerr)
+
+    local round, r2 = CrusaderStrikeGearEncoder.Decode(reimported, {
+      expect_realm = "CrusaderStrike",
+      expect_character = "Snipy",
+    })
+    ok(round ~= nil, r2)
+    eq(round.equipped, nil)
+    round.equipped = nil
+    local applied, aerr = CrusaderStrikeGearSets.ApplyImport(db, round)
+    ok(applied, aerr)
+
+    eq(db.gearSets.character_id, "char_01E2EROUNDTRIPTEST00000001")
+    local merged = CrusaderStrikeGearSets.FindByLocalId(db, local_id)
+    ok(merged ~= nil)
+    eq(merged.id, "11111111-2222-4333-8444-555555555501")
+    eq(merged.slots.head, 14148)
+    eq(merged.version, 3)
+    local merged_bis = CrusaderStrikeGearSets.FindByLocalId(db, bis.local_id)
+    ok(merged_bis ~= nil)
+    eq(merged_bis.id, "11111111-2222-4333-8444-555555555502")
+    eq(merged_bis.type, "max_level")
+  end)
+
+  it("fixture path still round-trips decode → ApplyImport → re-export local_id", function()
+    local path = "tests/fixtures/web_import_csgear1.txt"
+    local f = io.open(path, "r")
+    assert(f, "missing fixture")
+    local env = (f:read("*a") or ""):gsub("%s+$", "")
+    f:close()
+    local payload = CrusaderStrikeGearEncoder.Decode(env)
+    ok(payload ~= nil)
+    local db = {
+      gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} },
+    }
+    -- Seed local set matching fixture local_id so merge links id
+    local seed = CrusaderStrikeGearSets.CreateSet(db, {
+      name = "Pre-BiS 50",
+      type = "leveling",
+      until_level = 50,
+    }, 25)
+    seed.local_id = "a3f09c12"
+    seed.edited_at = "2026-11-05T06:00:00Z"
+    payload.equipped = nil
+    ok(CrusaderStrikeGearSets.ApplyImport(db, payload))
+    local out = CrusaderStrikeGearSets.BuildExportPayload(db, {
+      realm = "CrusaderStrike",
+      character = "Snipy",
+      equipped = {},
+    })
+    local enc = CrusaderStrikeGearEncoder.Encode(out)
+    ok(enc ~= nil)
+    local again = CrusaderStrikeGearEncoder.Decode(enc)
+    ok(again ~= nil)
+    local found = false
+    for _, list in ipairs(again.lists) do
+      if list.local_id == "a3f09c12" then
+        found = true
+        eq(list.id, "9c2e4f6a-1b3d-4e5f-8a7b-6c5d4e3f2a10")
+      end
+    end
+    ok(found, "re-export must keep linked local_id→id")
+  end)
+end)
+
+describe("until_level under-60 + Forever create defaults (#41)", function()
+  it("CreateDefaults / AllowedSetTypes match Forever rules", function()
+    local d25 = CrusaderStrikeGearSets.CreateDefaults(25)
+    eq(d25.type, "leveling")
+    eq(d25.until_level, 26)
+    eq(d25.allow_leveling, true)
+    local a25 = CrusaderStrikeGearSets.AllowedSetTypes(25)
+    eq(#a25, 2)
+    eq(a25[1], "leveling")
+    eq(a25[2], "max_level")
+
+    local d59 = CrusaderStrikeGearSets.CreateDefaults(59)
+    eq(d59.until_level, 60)
+    eq(d59.allow_leveling, true)
+
+    local d60 = CrusaderStrikeGearSets.CreateDefaults(60)
+    eq(d60.type, "max_level")
+    eq(d60.until_level, nil)
+    eq(d60.allow_leveling, false)
+    local a60 = CrusaderStrikeGearSets.AllowedSetTypes(60)
+    eq(#a60, 1)
+    eq(a60[1], "max_level")
+  end)
+
+  it("under-60 may create max_level; leveling edges enforced", function()
+    local db = { gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} } }
+    local maxset, merr = CrusaderStrikeGearSets.CreateSet(db, {
+      name = "Early BiS",
+      type = "max_level",
+      until_level = 99, -- coerced away
+    }, 30)
+    ok(maxset ~= nil, merr)
+    eq(maxset.type, "max_level")
+    eq(maxset.until_level, nil)
+
+    local ok_edge, list = true, CrusaderStrikeGearSets.CreateSet(db, {
+      name = "UpTo60",
+      type = "leveling",
+      until_level = 60,
+    }, 30)
+    ok(list ~= nil)
+    eq(list.until_level, 60)
+
+    local _, err_eq = CrusaderStrikeGearSets.CreateSet(db, {
+      name = "EqLevel",
+      type = "leveling",
+      until_level = 30,
+    }, 30)
+    eq(err_eq, "until_level_not_above_current_level")
+
+    local _, err_hi = CrusaderStrikeGearSets.CreateSet(db, {
+      name = "Over60",
+      type = "leveling",
+      until_level = 61,
+    }, 30)
+    eq(err_hi, "until_level_out_of_range")
+
+    local _, err_nil = CrusaderStrikeGearSets.CreateSet(db, {
+      name = "NoUntil",
+      type = "leveling",
+    }, 30)
+    eq(err_nil, "until_level_required")
+
+    -- ValidateUntilLevel alone rejects max_level + until_level
+    local okv, code = CrusaderStrikeGearSets.ValidateUntilLevel("max_level", 40, 30)
+    eq(okv, false)
+    eq(code, "until_level_must_be_null")
+  end)
+
+  it("RejectMessage covers until_level codes for UI", function()
+    local GE = CrusaderStrikeGearEncoder
+    ok(GE.RejectMessage("until_level_required"):find("Up to level", 1, true) ~= nil)
+    ok(GE.RejectMessage("leveling_set_at_max_level"):find("60", 1, true) ~= nil)
+    ok(GE.RejectMessage("until_level_must_be_null"):find("Max%-level", 1, true) ~= nil
+      or GE.RejectMessage("until_level_must_be_null"):find("max%-level", 1, true) ~= nil
+      or GE.RejectMessage("until_level_must_be_null"):find("Max-level", 1, true) ~= nil)
+  end)
+end)
+
+describe("sync API/session error handling (#41)", function()
+  it("FailSync keeps pending_ops and clears syncing with player message", function()
+    local db = { gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} } }
+    local list = CrusaderStrikeGearSets.CreateSet(db, { name = "SyncMe", type = "max_level" }, 60)
+    CrusaderStrikeGearSets.SetSlot(db, list.local_id, "head", 12345)
+    local before = #CrusaderStrikeGearSets.PeekPendingOps(db, list.local_id)
+    ok(before >= 1)
+    CrusaderStrikeGearSets.BeginSync(db, list.local_id)
+    eq(list.syncing, true)
+
+    local summary = CrusaderStrikeGearSets.FailSync(db, list.local_id, "session_expired")
+    eq(summary.syncing, false)
+    eq(list.syncing, false)
+    eq(summary.pending_kept, before)
+    eq(#CrusaderStrikeGearSets.PeekPendingOps(db, list.local_id), before) -- not drained
+    ok(summary.message:find("session", 1, true) ~= nil)
+    eq(list.last_sync_error.code, "session_expired")
+    eq(db.gearSets.last_sync_error.code, "session_expired")
+  end)
+
+  it("api_unavailable / token_expired / unauthorized have clear messages", function()
+    local GE = CrusaderStrikeGearEncoder
+    for _, code in ipairs({ "api_unavailable", "api_down", "network_error", "token_expired", "unauthorized", "unauthenticated" }) do
+      local msg = GE.SyncErrorMessage(code)
+      ok(type(msg) == "string" and #msg > 20, code)
+      ok(not msg:find("Import rejected", 1, true), code .. " should not look like import")
+    end
+  end)
+
+  it("ApplyOpsResult({error=...}) routes through FailSync without clearing pending", function()
+    local db = { gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} } }
+    local list = CrusaderStrikeGearSets.CreateSet(db, { name = "Down", type = "max_level" }, 60)
+    CrusaderStrikeGearSets.SetSlot(db, list.local_id, "wrist", 14148)
+    local n = #CrusaderStrikeGearSets.PeekPendingOps(db, list.local_id)
+    CrusaderStrikeGearSets.BeginSync(db, list.local_id)
+    local summary = CrusaderStrikeGearSets.ApplyOpsResult(db, list.local_id, {
+      error = { code = "api_unavailable" },
+    })
+    ok(summary ~= nil)
+    eq(summary.code, "api_unavailable")
+    eq(summary.pending_kept, n)
+    eq(list.syncing, false)
+    eq(#CrusaderStrikeGearSets.PeekPendingOps(db, list.local_id), n)
+    ok(summary.message:find("unreachable", 1, true) ~= nil
+      or summary.message:find("API", 1, true) ~= nil)
+  end)
+
+  it("CompleteSync clears syncing and last error", function()
+    local db = { gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} } }
+    local list = CrusaderStrikeGearSets.CreateSet(db, { name = "Done", type = "max_level" }, 60)
+    CrusaderStrikeGearSets.FailSync(db, list.local_id, "network_error")
+    ok(list.last_sync_error ~= nil)
+    CrusaderStrikeGearSets.CompleteSync(db, list.local_id)
+    eq(list.syncing, false)
+    eq(list.last_sync_error, nil)
+  end)
+end)

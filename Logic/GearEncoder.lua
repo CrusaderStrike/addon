@@ -67,7 +67,7 @@ function GE.ParseItemLink(link)
   return out
 end
 
--- Player-facing reject / reason strings for /cs import and gear UI.
+-- Player-facing reject / reason strings for /cs import, gear UI, and companion sync.
 local REJECT_MESSAGES = {
   bad_prefix = "Not a CSGEAR1 string (wrong prefix).",
   bad_checksum = "Gear string checksum failed — copy the whole CSGEAR1 line.",
@@ -79,6 +79,20 @@ local REJECT_MESSAGES = {
   list_limit_reached = "You already have 20 gear sets on this character. Delete one before importing more.",
   validation = "Gear string failed validation (name, slots, levels, or ids).",
   encoder = "Gear encoder is unavailable.",
+  -- until_level / create (Forever rules)
+  until_level_required = "Leveling sets need an Up to level above your current level.",
+  until_level_out_of_range = "Up to level must be between 1 and 60.",
+  until_level_not_above_current_level = "Up to level must be above your current character level.",
+  until_level_must_be_null = "Max-level sets do not use an Up to level.",
+  leveling_set_at_max_level = "At level 60 only max-level gear sets can be created.",
+  -- companion /sync transport + session (no silent fail; pending kept for retry)
+  api_unavailable = "Crusader Strike API is unreachable. Gear changes are saved locally and will retry.",
+  api_down = "Crusader Strike API is unreachable. Gear changes are saved locally and will retry.",
+  network_error = "Network error reaching Crusader Strike. Gear changes are saved locally and will retry.",
+  session_expired = "Your website session expired. Sign in again on crusaderstrike.com; local gear changes are kept.",
+  token_expired = "Your website session expired. Sign in again on crusaderstrike.com; local gear changes are kept.",
+  unauthorized = "Not signed in to Crusader Strike. Sign in on the website; local gear changes are kept.",
+  unauthenticated = "Not signed in to Crusader Strike. Sign in on the website; local gear changes are kept.",
 }
 
 function GE.RejectMessage(code)
@@ -90,6 +104,11 @@ function GE.RejectMessage(code)
     return msg
   end
   return "Import rejected (" .. tostring(code) .. ")."
+end
+
+-- Alias used by companion /sync callers (same table; clearer name).
+function GE.SyncErrorMessage(code)
+  return GE.RejectMessage(code)
 end
 
 local function u32(n)
