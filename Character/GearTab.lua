@@ -1,9 +1,9 @@
--- Crusader Strike gear window.
+-- Crusader Strike gear pane.
 --
--- Own window, parented to UIParent. It is not a CharacterFrame overlay and
--- not a paper-doll silhouette: no SetAllPoints(CharacterFrame), no portrait,
--- no player model. Opening it does not resize, cover, or restyle the
--- Character / PaperDoll tab.
+-- Fills the open Character tab (parent + SetAllPoints on CharacterFrame) so
+-- Gear Sets, Browser, and Stats sit inside that frame, in the same left-doll /
+-- right-column arrangement as the character pane. The doll is a CS-owned
+-- frame (CrusaderStrikeGearDoll), not CharacterFrame and not Character*Slot.
 --
 -- Taint:
 --   * Side-tab launcher uses CharacterFrameModeSideTabTemplate, parented to
@@ -13,13 +13,12 @@
 --   * No programmatic SecureActionButton:Click / ShowUIPanel / RefreshDisplay
 --   * CS-owned slot buttons (CrusaderStrikeHeadSlot …), never Character*Slot
 --
--- Entry: /cs geartab (CharacterFrame may be closed), or the CS-owned side-tab
--- logo under the Forever mode-tab strip. Either path shows this window only.
+-- Entry: /cs geartab or the CS side-tab, only while CharacterFrame is already
+-- shown. CS never opens CharacterFrame itself.
 --
--- The left pane is the gear doll. Gear Sets, Browser, and Stats are a
--- right-side pop-out (same idea as PaperDoll stats / equipment / titles):
--- the pop-out is anchored to the main frame's right edge, its content is
--- anchored to the pop-out, and closing it hides that UI.
+-- Weapon equip uses vanilla class proficiency (Forever 1.60.1 / Classic):
+-- a Druid cannot take swords or crossbows, and nobody can wear two main-hand
+-- weapons. Armor class filters are out of scope.
 -- Left-click a browser item to equip it into the current gear set; right-click
 -- a CS gear-set slot to unequip. AtlasLoot Classic data.lua is a layout
 -- reference only (GPL-2.0). See docs/character-gear-tab.md.
@@ -468,12 +467,24 @@ local function browser_rows()
   if not CrusaderStrikeGearBrowser or not CrusaderStrikeGearBrowser.Filter then
     return {}
   end
-  return CrusaderStrikeGearBrowser.Filter({
+  local rows = CrusaderStrikeGearBrowser.Filter({
     instanceId = state.instanceId,
     search = state.search,
     gearSlot = state.gearSlot,
     difficulty = CrusaderStrikeGearBrowser.FOREVER_NORMAL,
   }, game_version())
+  if not UI.AcceptsWeapon then
+    return rows
+  end
+  local classToken = UI.PlayerClassToken()
+  local kept = {}
+  for i = 1, #rows do
+    local row = rows[i]
+    if UI.AcceptsWeapon(row.itemId, state.gearSlot, classToken) then
+      kept[#kept + 1] = row
+    end
+  end
+  return kept
 end
 
 local function browser_empty_text()
@@ -715,6 +726,305 @@ function UI.OnPaperDollSlot(slotName)
   UI.OnGearSlot(slotName, "LeftButton")
 end
 
+-- Vanilla weapon subclasses (item class 2). Forever 1.60.1 follows Classic.
+local SUB = {
+  AXE1 = 0, AXE2 = 1, BOW = 2, GUN = 3, MACE1 = 4, MACE2 = 5,
+  POLEARM = 6, SWORD1 = 7, SWORD2 = 8, STAFF = 10, FIST = 13,
+  DAGGER = 15, THROWN = 16, SPEAR = 17, XBOW = 18, WAND = 19, FISH = 20,
+}
+
+local function weapon_set(list)
+  local t = {}
+  for i = 1, #list do
+    t[list[i]] = true
+  end
+  return t
+end
+
+-- Melee (main hand) proficiency. Off-hand weapons are a subset, and only
+-- Warrior / Rogue may dual wield on vanilla.
+local MELEE = {
+  WARRIOR = weapon_set({ SUB.AXE1, SUB.AXE2, SUB.MACE1, SUB.MACE2, SUB.POLEARM, SUB.SWORD1, SUB.SWORD2, SUB.STAFF, SUB.FIST, SUB.DAGGER, SUB.FISH }),
+  PALADIN = weapon_set({ SUB.AXE1, SUB.AXE2, SUB.MACE1, SUB.MACE2, SUB.POLEARM, SUB.SWORD1, SUB.SWORD2, SUB.FISH }),
+  HUNTER = weapon_set({ SUB.AXE1, SUB.AXE2, SUB.POLEARM, SUB.SWORD1, SUB.SWORD2, SUB.STAFF, SUB.FIST, SUB.DAGGER, SUB.FISH }),
+  ROGUE = weapon_set({ SUB.MACE1, SUB.SWORD1, SUB.FIST, SUB.DAGGER, SUB.FISH }),
+  PRIEST = weapon_set({ SUB.MACE1, SUB.STAFF, SUB.DAGGER, SUB.FISH }),
+  SHAMAN = weapon_set({ SUB.AXE1, SUB.AXE2, SUB.MACE1, SUB.MACE2, SUB.STAFF, SUB.FIST, SUB.DAGGER, SUB.FISH }),
+  MAGE = weapon_set({ SUB.SWORD1, SUB.STAFF, SUB.DAGGER, SUB.FISH }),
+  WARLOCK = weapon_set({ SUB.SWORD1, SUB.STAFF, SUB.DAGGER, SUB.FISH }),
+  DRUID = weapon_set({ SUB.MACE1, SUB.MACE2, SUB.POLEARM, SUB.STAFF, SUB.FIST, SUB.DAGGER, SUB.FISH }),
+}
+
+local RANGED = {
+  WARRIOR = weapon_set({ SUB.BOW, SUB.GUN, SUB.THROWN, SUB.XBOW }),
+  HUNTER = weapon_set({ SUB.BOW, SUB.GUN, SUB.THROWN, SUB.XBOW }),
+  ROGUE = weapon_set({ SUB.BOW, SUB.GUN, SUB.THROWN, SUB.XBOW }),
+  PRIEST = weapon_set({ SUB.WAND }),
+  MAGE = weapon_set({ SUB.WAND }),
+  WARLOCK = weapon_set({ SUB.WAND }),
+}
+
+local DUAL_WIELD = { WARRIOR = true, ROGUE = true }
+local TWOHAND_SUB = {
+  [SUB.AXE2] = true, [SUB.MACE2] = true, [SUB.POLEARM] = true,
+  [SUB.SWORD2] = true, [SUB.STAFF] = true, [SUB.SPEAR] = true,
+}
+local OFFHAND_SUB = {
+  [SUB.AXE1] = true, [SUB.MACE1] = true, [SUB.SWORD1] = true,
+  [SUB.FIST] = true, [SUB.DAGGER] = true,
+}
+
+-- Verified Forever/Classic weapons used when the client has not cached subclass.
+local KNOWN_WEAPONS = {
+  [14145] = { classID = 2, subClassID = SUB.SWORD1, equipLoc = "INVTYPE_WEAPON" }, -- Cursed Felblade
+  [272999] = { classID = 2, subClassID = SUB.XBOW, equipLoc = "INVTYPE_RANGED" }, -- Barbaric Crossbow
+}
+
+local SUBTYPE_TO_SUB = {
+  ["one-handed axes"] = SUB.AXE1,
+  ["two-handed axes"] = SUB.AXE2,
+  ["bows"] = SUB.BOW,
+  ["bow"] = SUB.BOW,
+  ["guns"] = SUB.GUN,
+  ["gun"] = SUB.GUN,
+  ["one-handed maces"] = SUB.MACE1,
+  ["two-handed maces"] = SUB.MACE2,
+  ["polearms"] = SUB.POLEARM,
+  ["polearm"] = SUB.POLEARM,
+  ["one-handed swords"] = SUB.SWORD1,
+  ["two-handed swords"] = SUB.SWORD2,
+  ["swords"] = SUB.SWORD1,
+  ["sword"] = SUB.SWORD1,
+  ["staves"] = SUB.STAFF,
+  ["staff"] = SUB.STAFF,
+  ["fist weapons"] = SUB.FIST,
+  ["fist weapon"] = SUB.FIST,
+  ["daggers"] = SUB.DAGGER,
+  ["dagger"] = SUB.DAGGER,
+  ["thrown"] = SUB.THROWN,
+  ["crossbows"] = SUB.XBOW,
+  ["crossbow"] = SUB.XBOW,
+  ["wands"] = SUB.WAND,
+  ["wand"] = SUB.WAND,
+  ["fishing poles"] = SUB.FISH,
+  ["fishing pole"] = SUB.FISH,
+}
+
+local WEAPON_LOCS = {
+  INVTYPE_WEAPON = true,
+  INVTYPE_2HWEAPON = true,
+  INVTYPE_WEAPONMAINHAND = true,
+  INVTYPE_WEAPONOFFHAND = true,
+  INVTYPE_RANGED = true,
+  INVTYPE_RANGEDRIGHT = true,
+  INVTYPE_THROWN = true,
+}
+
+function UI.PlayerClassToken()
+  if type(UnitClass) ~= "function" then
+    return nil
+  end
+  local ok, _, token = pcall(UnitClass, "player")
+  if not ok or type(token) ~= "string" or token == "" then
+    return nil
+  end
+  return token:upper()
+end
+
+local function apply_subtype_name(rec)
+  if rec.subClassID or type(rec.subType) ~= "string" then
+    return
+  end
+  local key = rec.subType:lower()
+  local sub = SUBTYPE_TO_SUB[key]
+  if key == "sword" or key == "swords" then
+    if rec.equipLoc == "INVTYPE_2HWEAPON" then
+      sub = SUB.SWORD2
+    else
+      sub = SUB.SWORD1
+    end
+  elseif key == "axe" or key == "axes" then
+    sub = (rec.equipLoc == "INVTYPE_2HWEAPON") and SUB.AXE2 or SUB.AXE1
+  elseif key == "mace" or key == "maces" then
+    sub = (rec.equipLoc == "INVTYPE_2HWEAPON") and SUB.MACE2 or SUB.MACE1
+  end
+  rec.subClassID = sub
+end
+
+local function weapon_record(itemId)
+  itemId = tonumber(itemId)
+  if not itemId then
+    return nil
+  end
+  local rec = {}
+  local known = KNOWN_WEAPONS[itemId]
+  if known then
+    rec.classID = known.classID
+    rec.subClassID = known.subClassID
+    rec.equipLoc = known.equipLoc
+  end
+  if type(GetItemInfoInstant) == "function" then
+    local ok, _, itemType, itemSubType, equipLoc, _, classID, subClassID = pcall(GetItemInfoInstant, itemId)
+    if ok then
+      if type(classID) == "number" then
+        rec.classID = classID
+      end
+      if type(subClassID) == "number" then
+        rec.subClassID = subClassID
+      end
+      if type(equipLoc) == "string" and equipLoc ~= "" then
+        rec.equipLoc = equipLoc:upper()
+      end
+      if type(itemSubType) == "string" and itemSubType ~= "" then
+        rec.subType = itemSubType
+      end
+      if type(itemType) == "string" and itemType:lower() == "weapon" then
+        rec.classID = 2
+      end
+    end
+  end
+  if type(GetItemInfo) == "function" and not rec.subClassID then
+    local ok, _, _, _, _, _, classStr, subStr, _, equipLoc = pcall(GetItemInfo, itemId)
+    if ok then
+      if type(classStr) == "string" and classStr:lower() == "weapon" then
+        rec.classID = 2
+      end
+      if type(subStr) == "string" and subStr ~= "" then
+        rec.subType = rec.subType or subStr
+      end
+      if type(equipLoc) == "string" and equipLoc ~= "" and not rec.equipLoc then
+        rec.equipLoc = equipLoc:upper()
+      end
+    end
+  end
+  if rec.equipLoc == "INVTYPE_2HWEAPON" and rec.subClassID == SUB.SWORD1 then
+    rec.subClassID = SUB.SWORD2
+  end
+  apply_subtype_name(rec)
+  if rec.classID ~= 2 and rec.equipLoc and WEAPON_LOCS[rec.equipLoc] then
+    rec.classID = 2
+  end
+  if rec.classID ~= 2 or rec.subClassID == nil then
+    return nil
+  end
+  return rec
+end
+
+local function is_two_hand(rec)
+  if not rec then
+    return false
+  end
+  if rec.equipLoc == "INVTYPE_2HWEAPON" then
+    return true
+  end
+  return TWOHAND_SUB[rec.subClassID] == true
+end
+
+local function is_mainhand_only(rec)
+  return rec and rec.equipLoc == "INVTYPE_WEAPONMAINHAND"
+end
+
+local function class_slot_ok(classToken, slot, rec)
+  if slot == "ranged" then
+    local set = RANGED[classToken]
+    if set and set[rec.subClassID] then
+      return true
+    end
+    return false, "class_weapon"
+  end
+  local set = MELEE[classToken]
+  if not set or not set[rec.subClassID] then
+    return false, "class_weapon"
+  end
+  if slot == "off_hand" then
+    if is_two_hand(rec) or is_mainhand_only(rec) or not OFFHAND_SUB[rec.subClassID] then
+      if is_two_hand(rec) or is_mainhand_only(rec) then
+        return false, "dual_mainhand"
+      end
+      return false, "class_weapon"
+    end
+    if not DUAL_WIELD[classToken] then
+      return false, "dual_mainhand"
+    end
+  end
+  return true
+end
+
+-- slot is main_hand / off_hand / ranged. Non-weapons and non-weapon slots pass.
+-- reason is "class_weapon" or "dual_mainhand".
+function UI.CheckEquip(itemId, slot, previewSlots, classToken)
+  if slot ~= "main_hand" and slot ~= "off_hand" and slot ~= "ranged" then
+    return true
+  end
+  local rec = weapon_record(itemId)
+  if not rec then
+    return true
+  end
+  classToken = classToken or UI.PlayerClassToken()
+  previewSlots = type(previewSlots) == "table" and previewSlots or {}
+  if classToken and MELEE[classToken] then
+    local ok, reason = class_slot_ok(classToken, slot, rec)
+    if not ok then
+      return false, reason
+    end
+  end
+  if slot == "off_hand" then
+    if is_two_hand(rec) or is_mainhand_only(rec) then
+      return false, "dual_mainhand"
+    end
+    local mainRec = weapon_record(previewSlots.main_hand)
+    if mainRec and (is_two_hand(mainRec) or is_mainhand_only(mainRec)) then
+      return false, "dual_mainhand"
+    end
+    if classToken and MELEE[classToken] and not DUAL_WIELD[classToken] then
+      return false, "dual_mainhand"
+    end
+  elseif slot == "main_hand" then
+    local offRec = weapon_record(previewSlots.off_hand)
+    if offRec and (is_two_hand(rec) or is_mainhand_only(rec) or is_mainhand_only(offRec) or is_two_hand(offRec)) then
+      return false, "dual_mainhand"
+    end
+    if classToken and MELEE[classToken] and not DUAL_WIELD[classToken] and offRec then
+      return false, "dual_mainhand"
+    end
+  end
+  return true
+end
+
+function UI.AcceptsWeapon(itemId, gearSlot, classToken)
+  if not weapon_record(itemId) then
+    return true
+  end
+  classToken = classToken or UI.PlayerClassToken()
+  if gearSlot == "main_hand" or gearSlot == "off_hand" or gearSlot == "ranged" then
+    return UI.CheckEquip(itemId, gearSlot, state.previewSlots, classToken) and true or false
+  end
+  if not classToken or not MELEE[classToken] then
+    return true
+  end
+  if UI.CheckEquip(itemId, "main_hand", {}, classToken) then
+    return true
+  end
+  if UI.CheckEquip(itemId, "off_hand", {}, classToken) then
+    return true
+  end
+  if UI.CheckEquip(itemId, "ranged", {}, classToken) then
+    return true
+  end
+  return false
+end
+
+local function reject_status(reason, classToken)
+  if reason == "dual_mainhand" then
+    return "Cannot equip two main-hand weapons."
+  end
+  local label = "This class"
+  if type(classToken) == "string" and classToken ~= "" then
+    label = classToken:sub(1, 1) .. classToken:sub(2):lower()
+  end
+  return label .. " cannot equip that weapon."
+end
+
 local function persist_slot(slot, itemId)
   local db = char_db()
   if not state.localId or not db or not CrusaderStrikeGearSets or not CrusaderStrikeGearSets.SetSlot then
@@ -739,6 +1049,12 @@ function UI.EquipItem(itemId)
   end
   if not slot then
     slot = "head"
+  end
+  local classToken = UI.PlayerClassToken()
+  local allowed, reason = UI.CheckEquip(itemId, slot, state.previewSlots, classToken)
+  if not allowed then
+    set_status(reject_status(reason, classToken))
+    return false, reason
   end
   state.activeSlot = slot
   state.previewSlots[slot] = itemId
@@ -979,6 +1295,10 @@ end
 
 local function build_doll(parent)
   dollFrame = CreateFrame("Frame", "CrusaderStrikeGearDoll", parent, "BackdropTemplate")
+  -- Own paper-doll frame. It uses the classic slot grid and empty-slot art,
+  -- and it is not CharacterFrame (no SetAllPoints on the character tab).
+  dollFrame._csPaperDoll = true
+  dollFrame._csOwnedDoll = true
   dollFrame:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, DOLL_TOP)
   dollFrame:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 8, 10)
   dollFrame:SetWidth(DOLL_WIDTH)
@@ -1150,49 +1470,44 @@ local function register_escape_close()
   _G.UISpecialFrames[#_G.UISpecialFrames + 1] = UI.FRAME_NAME
 end
 
+local function place_in_character_frame()
+  local cf = _G.CharacterFrame
+  if not root or not cf then
+    return false
+  end
+  if root.SetParent then
+    root:SetParent(cf)
+  end
+  if root.ClearAllPoints then
+    root:ClearAllPoints()
+  end
+  if root.SetAllPoints then
+    root:SetAllPoints(cf)
+  end
+  root._csFillsCharacterFrame = true
+  return true
+end
+
 local function ensure_ui()
+  local cf = _G.CharacterFrame
+  if not cf then
+    return false
+  end
   if root then
-    return
+    return place_in_character_frame()
   end
 
-  -- UIParent, never CharacterFrame. Own size and chrome (title + close),
-  -- not a paper-doll portrait frame stretched over the character tab.
-  root = CreateFrame("Frame", UI.FRAME_NAME, _G.UIParent, "BackdropTemplate")
+  -- Inside the open character tab. Not a UIParent window beside it.
+  root = CreateFrame("Frame", UI.FRAME_NAME, cf, "BackdropTemplate")
   root._csOwnedWindow = true
   root._csTitle = "Crusader Strike"
-  root:SetSize(UI.WINDOW_WIDTH, UI.WINDOW_HEIGHT)
-  root:SetPoint("CENTER", _G.UIParent, "CENTER", 80, 0)
-  if root.SetFrameStrata then
-    root:SetFrameStrata("HIGH")
-  end
+  root._csFillsCharacterFrame = true
   if root.SetFrameLevel then
-    root:SetFrameLevel(20)
-  end
-  if root.SetMovable then
-    root:SetMovable(true)
+    root:SetFrameLevel(40)
   end
   if root.EnableMouse then
     root:EnableMouse(true)
   end
-  if root.RegisterForDrag then
-    root:RegisterForDrag("LeftButton")
-  end
-  if root.SetClampedToScreen then
-    root:SetClampedToScreen(true)
-  end
-  if root.SetToplevel then
-    root:SetToplevel(true)
-  end
-  root:SetScript("OnDragStart", function(self)
-    if self.StartMoving then
-      self:StartMoving()
-    end
-  end)
-  root:SetScript("OnDragStop", function(self)
-    if self.StopMovingOrSizing then
-      self:StopMovingOrSizing()
-    end
-  end)
   apply_backdrop(root)
   root:SetScript("OnHide", function()
     UI.Leave()
@@ -1226,8 +1541,7 @@ local function ensure_ui()
     dollFrame:Show()
   end
 
-  -- Sidebar toggles stay on the main pane (PaperDoll sidebar tabs). They
-  -- share POPOUT_TOP with the pop-out so the strip lines up with the pane.
+  -- Sidebar toggles stay inside the tab, above the right column.
   local iconRow = CreateFrame("Frame", "CrusaderStrikeGearIconRow", root)
   iconRow:SetSize((ICON_SIZE * 3) + 8, ICON_SIZE)
   iconRow:SetPoint("TOPLEFT", root, "TOPLEFT", 8, UI.POPOUT_TOP)
@@ -1259,12 +1573,14 @@ local function ensure_ui()
     UI.TogglePane("stats")
   end)
 
-  -- Pop-out is a sibling region on the main frame's right edge, not a
-  -- column painted inside the doll at a fixed offset.
+  -- Right column inside the tab, beside the CS doll. Not hung off the frame.
   popout = CreateFrame("Frame", "CrusaderStrikeGearPopout", root, "BackdropTemplate")
-  popout:SetWidth(UI.POPOUT_WIDTH)
-  popout:SetPoint("TOPLEFT", root, "TOPRIGHT", -6, UI.POPOUT_TOP)
-  popout:SetPoint("BOTTOMLEFT", root, "BOTTOMRIGHT", -6, 10)
+  popout._csInFrameColumn = true
+  popout:SetPoint("TOPLEFT", root, "TOPLEFT", 8 + DOLL_WIDTH + 8, DOLL_TOP)
+  popout:SetPoint("BOTTOMRIGHT", root, "BOTTOMRIGHT", -8, 10)
+  if popout.SetClipsChildren then
+    popout:SetClipsChildren(true)
+  end
   if popout.EnableMouse then
     popout:EnableMouse(true)
   end
@@ -1467,6 +1783,7 @@ local function ensure_ui()
   end
 
   show_view("sets")
+  return place_in_character_frame()
 end
 
 function UI.Leave()
@@ -1484,12 +1801,14 @@ end
 
 function UI.Enter()
   local cf = _G.CharacterFrame
-  -- Launcher chrome only. The window itself never touches PaperDoll.
-  if cf then
-    ensure_toggle(cf)
+  if not cf or (cf.IsShown and not cf:IsShown()) then
+    return
+  end
+  ensure_toggle(cf)
+  if not ensure_ui() then
+    return
   end
   state.active = true
-  ensure_ui()
   refresh_toggle_checked()
   if root then
     root:Show()
@@ -1529,9 +1848,16 @@ function UI.Install()
 end
 
 function UI.Show()
-  -- Own window. CharacterFrame is not shown, resized, or covered.
-  -- Never ShowUIPanel / CharacterFrame:Show / ShowSubFrame / SecureActionButton:Click.
+  -- Fill the already-open character tab. Never ShowUIPanel / CharacterFrame:Show
+  -- / ShowSubFrame / SecureActionButton:Click.
   UI.Install()
+  local cf = _G.CharacterFrame
+  if not cf or (cf.IsShown and not cf:IsShown()) then
+    if CS.Print then
+      CS.Print("Open the character pane first, then /cs geartab")
+    end
+    return
+  end
   UI.Enter()
 end
 

@@ -14,12 +14,8 @@ describe("character gear tab scaffold", function()
     local prev = _G.CharacterFrame
     _G.CharacterFrame = nil
     SlashCmdList["CRUSADERSTRIKE"]("geartab")
-    local root = _G.CrusaderStrikeCharacterGearFrame
-    ok(root ~= nil)
-    eq(root:GetParent(), _G.UIParent)
-    ok(root:IsShown())
-    eq(root._allPoints, nil)
-    eq(root._csOwnedWindow, true)
+    -- No floating window. The pane only exists inside an open character tab.
+    eq(_G.CrusaderStrikeCharacterGearFrame, nil)
     _G.CharacterFrame = prev
   end)
 
@@ -103,18 +99,16 @@ describe("character gear tab scaffold", function()
     local root = _G.CrusaderStrikeCharacterGearFrame
     ok(root._csOwnedWindow)
     eq(root._csTitle, "Crusader Strike")
-    eq(root:GetParent(), _G.UIParent)
-    eq(root:GetParent() == _G.CharacterFrame, false)
-    eq(root._allPoints, nil)
-    eq(root:GetWidth(), CrusaderStrike.CharacterGearTab.WINDOW_WIDTH)
-    eq(root:GetHeight(), CrusaderStrike.CharacterGearTab.WINDOW_HEIGHT)
-    eq(root:GetFrameStrata(), "HIGH")
-    local point, rel, relPoint, x = root:GetPoint(1)
-    eq(point, "CENTER")
-    eq(rel, _G.UIParent)
-    eq(relPoint, "CENTER")
-    eq(x, 80)
-    eq(_G.CrusaderStrikeGearDoll:GetParent(), root)
+    eq(root._csFillsCharacterFrame, true)
+    eq(root:GetParent(), _G.CharacterFrame)
+    eq(root._allPoints, _G.CharacterFrame)
+    local doll = _G.CrusaderStrikeGearDoll
+    eq(doll:GetParent(), root)
+    eq(doll._csPaperDoll, true)
+    eq(doll._csOwnedDoll, true)
+    eq(doll._allPoints, nil)
+    eq(doll:GetParent() == _G.CharacterFrame, false)
+    eq(doll:GetWidth(), 236)
     ok(_G.CrusaderStrikeCharacterGearClose ~= nil)
     eq(_G.CrusaderStrikeCharacterGearClose:GetParent(), root)
 
@@ -238,18 +232,24 @@ describe("character gear tab scaffold", function()
     local saved = CrusaderStrikeGearSets.FindByLocalId(CrusaderStrikeCharDB, list.local_id)
     eq(saved.slots.wrist, 14148)
 
+    local csWrist = _G.CrusaderStrikeWristSlot
+    ok(csWrist ~= nil)
+    ok(csWrist._iconTex ~= nil)
+    ok(csWrist._iconTex:find("14148") ~= nil)
+
     ok(UI.UnequipSlot("wrist"))
     preview = UI.GetPreview()
     eq(preview.slots.wrist, nil)
     saved = CrusaderStrikeGearSets.FindByLocalId(CrusaderStrikeCharDB, list.local_id)
     eq(saved.slots.wrist, nil)
+    eq(csWrist._iconTex, "Interface\\PaperDoll\\UI-PaperDoll-Slot-Wrists")
 
     -- Right-click path on the CS slot button.
     ok(UI.EquipItem(14148))
-    local csWrist = _G.CrusaderStrikeWristSlot
-    ok(csWrist ~= nil)
+    ok(csWrist._iconTex:find("14148") ~= nil)
     csWrist:GetScript("OnClick")(csWrist, "RightButton")
     eq(UI.GetPreview().slots.wrist, nil)
+    eq(csWrist._iconTex, "Interface\\PaperDoll\\UI-PaperDoll-Slot-Wrists")
 
     _G.CharacterFrame = prevChar
     _G.CrusaderStrikeCharDB = prev
@@ -335,20 +335,18 @@ describe("character gear tab scaffold", function()
     }
     UI.Leave()
     UI.Show()
-    -- CS window opens on its own. CharacterFrame stays closed.
+    -- Character tab stays closed. CS does not float a pane beside it.
     eq(showCalls, 0)
     eq(_G.CharacterFrame.shown, false)
     eq(_G.CharacterFrame._width, 338)
     eq(UI.GetPreview().pending, false)
-    eq(UI.GetPreview().active, true)
-    ok(_G.CrusaderStrikeCharacterGearFrame:IsShown())
-    eq(_G.CrusaderStrikeCharacterGearFrame:GetParent(), _G.UIParent)
-    eq(#printed, 0)
+    eq(UI.GetPreview().active, false)
+    eq(_G.CrusaderStrikeCharacterGearFrame:IsShown(), false)
+    ok(#printed >= 1)
     -- Hidden pane OnShow must not be hooked by CS.
     _G.CharacterFrame:OnShow()
     eq(showCalls, 0)
-    eq(UI.GetPreview().active, true)
-    eq(_G.CrusaderStrikeCharacterGearFrame:GetParent(), _G.UIParent)
+    eq(UI.GetPreview().active, false)
     CrusaderStrike.Print = prevPrint
     _G.CharacterFrame = prev
   end)
@@ -367,19 +365,21 @@ describe("character gear tab scaffold", function()
     local pop = _G.CrusaderStrikeGearPopout
     ok(pop ~= nil)
     eq(pop:GetParent(), root)
+    eq(pop._csInFrameColumn, true)
     eq(pop._allPoints, nil)
-    eq(pop:GetWidth(), UI.POPOUT_WIDTH)
-    ok(root:GetWidth() < UI.POPOUT_WIDTH + 40)
+    eq(root:GetParent(), _G.CharacterFrame)
+    eq(root._allPoints, _G.CharacterFrame)
     local point, rel, relPoint, x, y = pop:GetPoint(1)
     eq(point, "TOPLEFT")
     eq(rel, root)
-    eq(relPoint, "TOPRIGHT")
-    ok(x <= 0 and x >= -16)
-    eq(y, UI.POPOUT_TOP)
-    local point2, rel2, relPoint2 = pop:GetPoint(2)
-    eq(point2, "BOTTOMLEFT")
+    eq(relPoint, "TOPLEFT")
+    ok(x > 0)
+    eq(y, -84)
+    local point2, rel2, relPoint2, x2 = pop:GetPoint(2)
+    eq(point2, "BOTTOMRIGHT")
     eq(rel2, root)
     eq(relPoint2, "BOTTOMRIGHT")
+    ok(x2 < 0)
 
     local sets = _G.CrusaderStrikeGearSetsPanel
     local browser = _G.CrusaderStrikeGearBrowserPanel
@@ -463,6 +463,115 @@ describe("character gear tab scaffold", function()
     eq(browser:IsShown(), false)
     eq(sets:IsShown(), false)
 
+    _G.CharacterFrame = prevChar
+  end)
+
+  it("rejects class-illegal weapons and a second main-hand", function()
+    local UI = CrusaderStrike.CharacterGearTab
+    local prevClass = _G.UnitClass
+    local prevInfo = _G.GetItemInfoInstant
+    local prevChar = _G.CharacterFrame
+    _G.CharacterFrame = {
+      ModeTabs = { Tabs = {} },
+      shown = true,
+      IsShown = function(self) return self.shown end,
+    }
+    local info = {
+      [900001] = { "Weapon", "One-Handed Swords", "INVTYPE_WEAPON", 2, 7 },
+      [900002] = { "Weapon", "Crossbows", "INVTYPE_RANGED", 2, 18 },
+      [900003] = { "Weapon", "One-Handed Maces", "INVTYPE_WEAPON", 2, 4 },
+      [900004] = { "Weapon", "One-Handed Swords", "INVTYPE_WEAPONMAINHAND", 2, 7 },
+      [900005] = { "Weapon", "Two-Handed Swords", "INVTYPE_2HWEAPON", 2, 8 },
+      [900006] = { "Weapon", "Daggers", "INVTYPE_WEAPON", 2, 15 },
+    }
+    _G.GetItemInfoInstant = function(itemId)
+      local row = info[tonumber(itemId)]
+      if not row then
+        return prevInfo(itemId)
+      end
+      return itemId, row[1], row[2], row[3], "Interface\\Icons\\INV_CS_Item_" .. tostring(itemId), row[4], row[5]
+    end
+    _G.UnitClass = function() return "Druid", "DRUID" end
+
+    UI.Show()
+    UI.DeselectSlot()
+    local slots = UI.GetPreview().slots
+    for slot in pairs(slots) do
+      slots[slot] = nil
+    end
+
+    UI.OnGearSlot("main_hand", "LeftButton")
+    local okSword, whySword = UI.EquipItem(900001)
+    eq(okSword, false)
+    eq(whySword, "class_weapon")
+    eq(UI.GetPreview().slots.main_hand, nil)
+
+    UI.OnGearSlot("ranged", "LeftButton")
+    local okXbow, whyXbow = UI.EquipItem(900002)
+    eq(okXbow, false)
+    eq(whyXbow, "class_weapon")
+    eq(UI.GetPreview().slots.ranged, nil)
+    local okKnown, whyKnown = UI.EquipItem(272999)
+    eq(okKnown, false)
+    eq(whyKnown, "class_weapon")
+
+    UI.OnGearSlot("main_hand", "LeftButton")
+    ok(UI.EquipItem(900003))
+    eq(UI.GetPreview().slots.main_hand, 900003)
+    local mh = _G.CrusaderStrikeMainHandSlot
+    ok(mh._iconTex ~= nil)
+    ok(mh._iconTex:find("900003") ~= nil)
+
+    UI.OnGearSlot("off_hand", "LeftButton")
+    local okOff, whyOff = UI.EquipItem(900006)
+    eq(okOff, false)
+    eq(whyOff, "dual_mainhand")
+    eq(UI.GetPreview().slots.off_hand, nil)
+    eq(UI.GetPreview().slots.main_hand, 900003)
+
+    _G.UnitClass = function() return "Warrior", "WARRIOR" end
+    slots = UI.GetPreview().slots
+    for slot in pairs(slots) do
+      slots[slot] = nil
+    end
+    UI.OnGearSlot("main_hand", "LeftButton")
+    ok(UI.EquipItem(900004))
+    UI.OnGearSlot("off_hand", "LeftButton")
+    local okSecond, whySecond = UI.EquipItem(900004)
+    eq(okSecond, false)
+    eq(whySecond, "dual_mainhand")
+    eq(UI.GetPreview().slots.off_hand, nil)
+
+    slots = UI.GetPreview().slots
+    for slot in pairs(slots) do
+      slots[slot] = nil
+    end
+    UI.OnGearSlot("main_hand", "LeftButton")
+    ok(UI.EquipItem(900001))
+    UI.OnGearSlot("off_hand", "LeftButton")
+    ok(UI.EquipItem(900001))
+    eq(UI.GetPreview().slots.main_hand, 900001)
+    eq(UI.GetPreview().slots.off_hand, 900001)
+
+    slots = UI.GetPreview().slots
+    for slot in pairs(slots) do
+      slots[slot] = nil
+    end
+    UI.OnGearSlot("main_hand", "LeftButton")
+    ok(UI.EquipItem(900005))
+    UI.OnGearSlot("off_hand", "LeftButton")
+    local okTwo, whyTwo = UI.EquipItem(900006)
+    eq(okTwo, false)
+    eq(whyTwo, "dual_mainhand")
+
+    eq(UI.AcceptsWeapon(900002, "ranged", "DRUID"), false)
+    eq(UI.AcceptsWeapon(900002, nil, "DRUID"), false)
+    eq(UI.AcceptsWeapon(900003, "main_hand", "DRUID"), true)
+    eq(UI.AcceptsWeapon(900001, "main_hand", "DRUID"), false)
+    eq(UI.AcceptsWeapon(14148, nil, "DRUID"), true)
+
+    _G.UnitClass = prevClass
+    _G.GetItemInfoInstant = prevInfo
     _G.CharacterFrame = prevChar
   end)
 end)
