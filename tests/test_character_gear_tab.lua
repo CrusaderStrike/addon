@@ -626,7 +626,7 @@ describe("character gear tab scaffold", function()
     _G.CharacterFrame = prevChar
   end)
 
-  it("gates hunter and shaman mail at gear-set level 40", function()
+  it("allows armor by class with no level gate", function()
     local UI = CrusaderStrike.CharacterGearTab
     local prevClass = _G.UnitClass
     local prevLevel = _G.UnitLevel
@@ -634,7 +634,7 @@ describe("character gear tab scaffold", function()
     local prevChar = _G.CharacterFrame
     local prevDb = _G.CrusaderStrikeCharDB
     _G.CrusaderStrikeCharDB = {}
-    _G.UnitLevel = function() return 39 end
+    _G.UnitLevel = function() return 10 end
     _G.CharacterFrame = {
       ModeTabs = { Tabs = {} },
       shown = true,
@@ -666,18 +666,17 @@ describe("character gear tab scaffold", function()
       return UI.EquipItem(itemId)
     end
     UI.Show()
-    local okMail, whyMail = wear("SHAMAN", 910003)
-    eq(okMail, false)
-    eq(whyMail, "class_armor")
-    eq(UI.GetPreview().slots.chest, nil)
-    _G.UnitLevel = function() return 40 end
-    ok(wear("SHAMAN", 910003))
+    local low = CrusaderStrikeGearSets.CreateSet(CrusaderStrikeCharDB, {
+      name = "To 10",
+      type = "leveling",
+      until_level = 10,
+    }, 1)
+    ok(low ~= nil)
+    ok(UI.SelectSet(low.local_id))
+    local okMail = wear("SHAMAN", 910003)
+    ok(okMail)
     eq(UI.GetPreview().slots.chest, 910003)
-    _G.UnitLevel = function() return 39 end
-    eq(select(1, wear("HUNTER", 910003)), false)
-    _G.UnitLevel = function() return 40 end
     ok(wear("HUNTER", 910003))
-    _G.UnitLevel = function() return 1 end
     local okPlate, whyPlate = wear("SHAMAN", 910004)
     eq(okPlate, false)
     eq(whyPlate, "class_armor")
@@ -695,29 +694,8 @@ describe("character gear tab scaffold", function()
     ok(wear("PRIEST", 910001))
     eq(select(1, wear("PRIEST", 910004)), false)
     eq(select(1, wear("WARLOCK", 910002)), false)
-    _G.UnitLevel = function() return 39 end
-    eq(UI.AcceptsWeapon(910003, "chest", "SHAMAN"), false)
-    eq(UI.AcceptsWeapon(910003, "chest", "HUNTER"), false)
-    _G.UnitLevel = function() return 40 end
     eq(UI.AcceptsWeapon(910003, "chest", "SHAMAN"), true)
     eq(UI.AcceptsWeapon(910003, "chest", "HUNTER"), true)
-    local low = CrusaderStrikeGearSets.CreateSet(CrusaderStrikeCharDB, {
-      name = "To 39",
-      type = "leveling",
-      until_level = 39,
-    }, 1)
-    ok(low ~= nil)
-    ok(UI.SelectSet(low.local_id))
-    _G.UnitLevel = function() return 60 end
-    eq(select(1, wear("SHAMAN", 910003)), false)
-    local capped = CrusaderStrikeGearSets.CreateSet(CrusaderStrikeCharDB, {
-      name = "Bis",
-      type = "max_level",
-    }, 60)
-    ok(capped ~= nil)
-    ok(UI.SelectSet(capped.local_id))
-    _G.UnitLevel = function() return 1 end
-    ok(wear("SHAMAN", 910003))
     eq(UI.AcceptsWeapon(910003, nil, "DRUID"), false)
     eq(UI.AcceptsWeapon(910004, "chest", "WARRIOR"), true)
     eq(UI.AcceptsWeapon(910001, "chest", "MAGE"), true)
