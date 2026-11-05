@@ -24,8 +24,8 @@ dofile(addon_root .. "Logic/Detection.lua")
 dofile(addon_root .. "Logic/DebugEvents.lua")
 dofile(addon_root .. "Logic/WishList.lua")
 dofile(addon_root .. "Logic/GearSlots.lua")
-dofile(addon_root .. "Logic/EquippedGear.lua")
 dofile(addon_root .. "Logic/GearEncoder.lua")
+dofile(addon_root .. "Logic/EquippedGear.lua")
 dofile(addon_root .. "Logic/GearSets.lua")
 
 local passed, failed = 0, 0

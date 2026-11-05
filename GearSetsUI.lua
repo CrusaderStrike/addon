@@ -269,9 +269,10 @@ local function save_create_or_edit()
       role_spec = role,
     }, lvl)
     if not list then
-      set_status("Create failed: " .. tostring(err))
+      local msg = (CrusaderStrikeGearEncoder and CrusaderStrikeGearEncoder.RejectMessage(err)) or tostring(err)
+      set_status("Create failed: " .. msg)
       if CS.Print then
-        CS.Print("gear set create failed: " .. tostring(err))
+        CS.Print("gear set create failed: " .. msg)
       end
       return
     end
@@ -288,7 +289,8 @@ local function save_create_or_edit()
       role_spec = role,
     }, lvl)
     if not list then
-      set_status("Update failed: " .. tostring(err))
+      local msg = (CrusaderStrikeGearEncoder and CrusaderStrikeGearEncoder.RejectMessage(err)) or tostring(err)
+      set_status("Update failed: " .. msg)
       return
     end
     rebuild_dropdown_label()

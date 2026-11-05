@@ -53,3 +53,15 @@ Also confirm in `/cs status` / export:
 
 `/cs debug events off` (or `clear` to empty the buffer). The buffer lives in
 `CrusaderStrikeDB.debugEvents` (capped at ~500 entries).
+
+## Gear sets morning check (addon#26 / #29)
+
+Owner: in-game Forever client. Relates to addon#25 / #29.
+
+Checklist:
+
+1. **Item link field order** — Equip an enchanted item (and ideally one with a random suffix if available). `/cs export`, copy the CSGEAR1 line, and confirm `equipped.*.item_id` / `enchant_id` match the item. Field indices live in `Logic/GearEncoder.lua` (`ITEM_LINK_FIELDS`). Update that table + this note if Forever differs.
+2. **`/cs gearsets` UI** — Layout renders; shift-click an item into chat and paste/assign into a set slot.
+3. **Round-trip** — Export CSGEAR1 → paste on the live site (armory / gear-lists) → export back from the site → `/cs import` on the same character. Confirm `local_id` links to the server `id`, sets match, and any `item_not_forever` / `list_limit_reached` / `character_mismatch` messages are clear (not raw codes).
+
+Done when all three pass, or when any failure is written up on the related issue.
