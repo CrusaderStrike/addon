@@ -68,10 +68,10 @@ end
     base_version = number,         -- list.version last observed
     prior_item_ids = {number,...}, -- items currently in the slot (legacy clear/replace)
     mode = "set_slot"|"legacy"|nil,
-    source = "addon"|nil,
     op_id = string|nil,            -- optional fixed id (tests / replay)
   }
   Returns ops array (may be empty when clear of already-empty slot).
+  Note: do not put `source` on the wire — server soft-ignores it into ignored[].
 ]]
 function GO.BuildSlotOps(opts)
   opts = opts or {}
@@ -86,7 +86,6 @@ function GO.BuildSlotOps(opts)
   if type(prior) ~= "table" then
     prior = {}
   end
-  local source = opts.source or "addon"
   local ops = {}
 
   local function push(op)
@@ -97,7 +96,7 @@ function GO.BuildSlotOps(opts)
     end
     op.slot = slot
     op.base_version = bv
-    op.source = source
+    -- intentionally omit source (lands in ignored[] on the server)
     ops[#ops + 1] = op
   end
 

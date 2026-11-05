@@ -356,7 +356,6 @@ function G.SetSlot(charDB, local_id, slot, item_id)
       base_version = list.version,
       prior_item_ids = prior,
       mode = mode,
-      source = "addon",
       force_clear = (item_id == nil and prev ~= nil),
     })
     if not ops then
@@ -379,9 +378,11 @@ function G.SetSlot(charDB, local_id, slot, item_id)
   end
 
   -- Queue OpenAPI ops for companion /sync (replace any prior pending for this slot).
+  -- prior_item_id is local-only (for revert on hard reject); stripped on send.
   if ops then
     list.pending_ops = drop_pending_for_slot(list.pending_ops, slot)
     for _, op in ipairs(ops) do
+      op.prior_item_id = prev
       list.pending_ops[#list.pending_ops + 1] = op
     end
   end
@@ -391,23 +392,294 @@ function G.SetSlot(charDB, local_id, slot, item_id)
   return list, ops
 end
 
--- Return and clear queued OpenAPI ops (companion drain). op_id dedupe is server-side.
-function G.DrainPendingOps(charDB, local_id)
-  local list = G.FindByLocalId(charDB, local_id)
-  if not list then
-    return nil, "validation"
+-- Wire-clean copy of one pending op (no local-only fields like prior_item_id/source).
+local function wire_op(op)
+  local out = {
+    op_id = op.op_id,
+    type = op.type,
+    slot = op.slot,
+    base_version = op.base_version,
+  }
+  if op.item_id ~= nil then
+    out.item_id = op.item_id
   end
-  local ops = list.pending_ops or {}
-  list.pending_ops = {}
-  return ops
+  if op.priority ~= nil then
+    out.priority = op.priority
+  end
+  return out
 end
 
+local function wire_ops(pending)
+  local out = {}
+  for i, op in ipairs(pending or {}) do
+    out[i] = wire_op(op)
+  end
+  return out
+end
+
+-- Peek queued OpenAPI ops as wire payloads (does NOT clear). Retries keep the same op_id.
 function G.PeekPendingOps(charDB, local_id)
   local list = G.FindByLocalId(charDB, local_id)
   if not list then
     return nil, "validation"
   end
-  return list.pending_ops or {}
+  return wire_ops(list.pending_ops)
+end
+
+-- Companion drain: peek only. Ops stay queued until ApplyOpsResult / AckPendingOps.
+-- (Previously cleared before send, which broke op_id dedupe on retry.)
+function G.DrainPendingOps(charDB, local_id)
+  return G.PeekPendingOps(charDB, local_id)
+end
+
+-- Remove pending ops whose op_id is in op_ids (applied / rejected / duplicates).
+function G.AckPendingOps(charDB, local_id, op_ids)
+  local list = G.FindByLocalId(charDB, local_id)
+  if not list then
+    return nil, "validation"
+  end
+  local drop = {}
+  if type(op_ids) == "table" then
+    for _, id in ipairs(op_ids) do
+      if type(id) == "string" then
+        drop[id] = true
+      elseif type(id) == "table" and type(id.op_id) == "string" then
+        drop[id.op_id] = true
+      end
+    end
+  end
+  local kept = {}
+  for _, op in ipairs(list.pending_ops or {}) do
+    if not drop[op.op_id] then
+      kept[#kept + 1] = op
+    end
+  end
+  list.pending_ops = kept
+  return kept
+end
+
+function G.SetListVersion(charDB, local_id, version)
+  local list = G.FindByLocalId(charDB, local_id)
+  if not list then
+    return nil, "validation"
+  end
+  if type(version) == "number" and version == math.floor(version) and version >= 0 then
+    list.version = version
+  end
+  return list
+end
+
+local function normalize_op_ids(arr)
+  local out = {}
+  if type(arr) ~= "table" then
+    return out
+  end
+  for _, v in ipairs(arr) do
+    if type(v) == "string" then
+      out[#out + 1] = v
+    elseif type(v) == "table" and type(v.op_id) == "string" then
+      out[#out + 1] = v.op_id
+    end
+  end
+  return out
+end
+
+local function find_pending(list, op_id)
+  for _, op in ipairs(list.pending_ops or {}) do
+    if op.op_id == op_id then
+      return op
+    end
+  end
+  return nil
+end
+
+local function reject_message(reason, slot, item_id)
+  local msg
+  if reason == "item_not_in_slot" then
+    msg = "Item is not valid for that slot"
+  elseif reason == "list_items_limit" then
+    msg = "Gear list item limit reached"
+  elseif reason == "stale_base_version" then
+    msg = "Gear list changed on the server; retrying"
+  elseif reason == "item_not_forever" then
+    msg = "Item is not available in Forever"
+  else
+    msg = tostring(reason or "rejected")
+  end
+  if slot then
+    msg = msg .. " [" .. tostring(slot) .. "]"
+  end
+  if item_id then
+    msg = msg .. " (item " .. tostring(item_id) .. ")"
+  end
+  return msg
+end
+
+local function revert_slot(list, slot, prior_item_id)
+  list.slots = list.slots or {}
+  list.removes = drop_removes_for_slot(list.removes, slot)
+  if prior_item_id == nil then
+    list.slots[slot] = nil
+  else
+    list.slots[slot] = prior_item_id
+  end
+end
+
+--[[
+  Apply a GearOpsResult (openapi) / companion ops response to local state.
+  Accepts conflicts[] (contract name) or rejected[] (alias from review notes).
+  - applied[] / duplicates[]: ack op_ids; take result.version (no-ops stay applied, may not bump).
+  - conflicts stale_base_version: refresh version, rebuild op with a NEW op_id.
+  - conflicts item_not_in_slot / list_items_limit: revert local slot + return error for UI.
+  - ignored[]: returned for logging (source etc.).
+]]
+function G.ApplyOpsResult(charDB, local_id, result)
+  local list = G.FindByLocalId(charDB, local_id)
+  if not list or type(result) ~= "table" then
+    return nil, "validation"
+  end
+  list.pending_ops = list.pending_ops or {}
+  if type(list.version) ~= "number" then
+    list.version = 0
+  end
+
+  local applied_ids = normalize_op_ids(result.applied)
+  local dup_ids = normalize_op_ids(result.duplicates)
+  local conflicts = result.conflicts
+  if type(conflicts) ~= "table" then
+    conflicts = result.rejected
+  end
+  if type(conflicts) ~= "table" then
+    conflicts = {}
+  end
+  local ignored = result.ignored
+  if type(ignored) ~= "table" then
+    ignored = {}
+  end
+
+  -- Refresh list version from the response (and optional nested list).
+  local new_version = result.version
+  if type(result.list) == "table" then
+    if result.list.id ~= nil then
+      list.id = result.list.id
+    end
+    if type(result.list.version) == "number" then
+      new_version = result.list.version
+    end
+  end
+  if type(new_version) == "number" and new_version == math.floor(new_version) and new_version >= 0 then
+    list.version = new_version
+  end
+
+  local ack = {}
+  for _, id in ipairs(applied_ids) do
+    ack[#ack + 1] = id
+  end
+  for _, id in ipairs(dup_ids) do
+    ack[#ack + 1] = id
+  end
+
+  local rebuilt = {}
+  local errors = {}
+  local mode = "set_slot"
+  if CrusaderStrikeGearOps and CrusaderStrikeGearOps.GetMode then
+    mode = CrusaderStrikeGearOps.GetMode()
+  end
+
+  for _, c in ipairs(conflicts) do
+    if type(c) == "table" and type(c.op_id) == "string" then
+      ack[#ack + 1] = c.op_id
+      local pending = find_pending(list, c.op_id)
+      local reason = c.reason
+      if type(c.winning_version) == "number" and c.winning_version > (list.version or 0) then
+        list.version = c.winning_version
+      end
+      if reason == "stale_base_version" and pending then
+        -- Drop stale op (via ack), rebuild with new op_id + refreshed base_version.
+        local item_id = pending.item_id
+        if pending.type == "clear_slot" or pending.type == "remove_item" then
+          item_id = nil
+        end
+        local prior = {}
+        if pending.prior_item_id ~= nil then
+          prior[1] = pending.prior_item_id
+        elseif list.slots and list.slots[pending.slot] ~= nil and item_id == nil then
+          -- clearing: prior already applied locally; force_clear
+        end
+        local force_clear = (item_id == nil)
+        if CrusaderStrikeGearOps and CrusaderStrikeGearOps.BuildSlotOps then
+          local ops = CrusaderStrikeGearOps.BuildSlotOps({
+            slot = pending.slot,
+            item_id = item_id,
+            base_version = list.version,
+            prior_item_ids = prior,
+            mode = mode,
+            force_clear = force_clear,
+          })
+          if ops then
+            for _, op in ipairs(ops) do
+              op.prior_item_id = pending.prior_item_id
+              rebuilt[#rebuilt + 1] = op
+            end
+          end
+        end
+      elseif reason == "item_not_in_slot" or reason == "list_items_limit" then
+        local slot = (pending and pending.slot) or c.slot
+        local prior = pending and pending.prior_item_id or nil
+        local item_id = (pending and pending.item_id) or c.item_id
+        if slot then
+          revert_slot(list, slot, prior)
+        end
+        errors[#errors + 1] = {
+          op_id = c.op_id,
+          reason = reason,
+          slot = slot,
+          item_id = item_id,
+          message = reject_message(reason, slot, item_id),
+        }
+      elseif pending then
+        errors[#errors + 1] = {
+          op_id = c.op_id,
+          reason = reason,
+          slot = pending.slot or c.slot,
+          item_id = pending.item_id or c.item_id,
+          message = reject_message(reason, pending.slot or c.slot, pending.item_id or c.item_id),
+        }
+      end
+    end
+  end
+
+  G.AckPendingOps(charDB, local_id, ack)
+  -- Append rebuilt ops (new op_ids) grouped by slot, replacing any leftover same-slot pending.
+  local by_slot = {}
+  local slot_order = {}
+  for _, op in ipairs(rebuilt) do
+    if not by_slot[op.slot] then
+      by_slot[op.slot] = {}
+      slot_order[#slot_order + 1] = op.slot
+    end
+    local bucket = by_slot[op.slot]
+    bucket[#bucket + 1] = op
+  end
+  for _, slot in ipairs(slot_order) do
+    list.pending_ops = drop_pending_for_slot(list.pending_ops, slot)
+    for _, op in ipairs(by_slot[slot]) do
+      list.pending_ops[#list.pending_ops + 1] = op
+    end
+  end
+
+  local ignored_out = {}
+  for i, ig in ipairs(ignored) do
+    ignored_out[i] = ig
+  end
+
+  return {
+    version = list.version,
+    acked = ack,
+    rebuilt = wire_ops(rebuilt),
+    errors = errors,
+    ignored = ignored_out,
+  }
 end
 
 function G.DeleteSet(charDB, local_id)
@@ -452,7 +724,7 @@ local function copy_list(src)
         item_id = op.item_id,
         priority = op.priority,
         base_version = op.base_version,
-        source = op.source,
+        prior_item_id = op.prior_item_id, -- local-only
       }
     end
   end
@@ -598,6 +870,9 @@ function G.ApplyImport(charDB, payload)
         existing.role_spec = role_spec
         existing.edited_at = incoming.edited_at
         existing.edited_in = incoming.edited_in or "web"
+        if type(incoming.version) == "number" and incoming.version == math.floor(incoming.version) and incoming.version >= 0 then
+          existing.version = incoming.version
+        end
         if type(incoming.slots) == "table" then
           for k, v in pairs(incoming.slots) do
             existing.slots[k] = v

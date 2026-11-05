@@ -6,6 +6,7 @@ All notable changes to CrusaderStrike (World of Warcraft: Forever only).
 
 ### Added
 - **Armory slot ops (platform#46):** in-game slot pick/clear queues OpenAPI `set_slot` / `clear_slot` on `list.pending_ops` (uuid `op_id`, `base_version`) for companion `/sync`. Primary path matches live platform; short `legacy` mode (`remove_item`+`add_item`) remains for fixtures/tests via `CrusaderStrikeGearOps.SetMode`.
+- **Ops response handling:** `list.version` tracks the server; `DrainPendingOps` peeks (no clear) and `AckPendingOps` / `ApplyOpsResult` drop ops only after `applied`/`conflicts`/`duplicates`; stale ops rebuild with a new `op_id`; hard rejects revert the slot. Wire ops omit `source` (avoids `ignored[]`).
 
 ## 0.3.1 (WoW Forever)
 
