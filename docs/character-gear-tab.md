@@ -1,16 +1,16 @@
 # Character pane gear tab
 
 Gear-set builder for Forever (addon#2, related to the addon#25 redesign).
-Crusader Strike is **its own window**, parented to `UIParent`, with its own
-size and chrome. It is not an overlay on `CharacterFrame` and not a paper-doll
-silhouette: no portrait, no player model, no `SetAllPoints(CharacterFrame)`.
-Opening it does not resize, cover, or restyle the Character / PaperDoll tab.
-There are no shared slot buttons, no script swaps on Blizzard frames, and no
-Equipment Manager sync. Left-click a browser item to equip it into the current
-gear set; right-click a CS gear-set slot to unequip.
+Crusader Strike is a mode-tab sibling of Character, Reputation, Skills, PvP,
+Currency, and Statistics. `CrusaderStrikeCharacterGearFrame` is a content pane
+on `CharacterFrame`, in the rectangle PaperDoll uses. It is not a
+`SetAllPoints` cover and it does not paint over the side-tab strip. There are
+no shared slot buttons, no script swaps on Blizzard frames, and no Equipment
+Manager sync. Left-click a browser item to equip it into the current gear set;
+right-click a CS gear-set slot to unequip.
 
-The addon stays Lua-only. `Character/GearTab.lua` builds
-`CrusaderStrikeCharacterGearFrame` with `CreateFrame`.
+The addon stays Lua-only. `Character/GearTab.lua` builds the pane with
+`CreateFrame`.
 
 ## Where it sits
 
@@ -20,28 +20,29 @@ Mode tabs are the vertical side tabs `CharacterFrameModeTab1`–`6`
 (Character, Reputation, Skills, PvP, Currency, Statistics). **This addon does
 not append a seventh ModeTabs.Tabs entry** (that injection caused Character
 open taint). It **does** reuse `CharacterFrameModeSideTabTemplate` for the
-launcher chrome only.
+logo button in the strip.
 
-- A CS-owned toggle (`CrusaderStrikeGearTabToggle`) is parented to `ModeTabs`
-  with `CharacterFrameModeSideTabTemplate`, anchored under the last Forever
-  side tab (`TOPLEFT` → last tab `BOTTOMLEFT`, 2px gap) so the logo sits in
-  the strip. The Tabs table is never mutated. Logo: `assets/logo.tga`.
-  Clicking it shows or hides the CS window. It does not select a mode tab.
-- `/cs geartab` opens the same window even when `CharacterFrame` is closed.
-  CS never calls `ShowUIPanel`, `CharacterFrame:Show`, `ShowSubFrame`,
+- `CrusaderStrikeGearTabToggle` is parented to `ModeTabs` with
+  `CharacterFrameModeSideTabTemplate`, anchored under the last Forever side
+  tab. Logo: `assets/logo.tga`. The Tabs table is never written.
+- Selecting it hides `CharacterFrame.activeSubframe` (`_G[name]:Hide()`) and
+  shows `CrusaderStrikeCharacterGearFrame`. It unchecks the existing mode
+  tabs with a read-only walk. It does not call `ShowSubFrame`.
+- An observe-only `hooksecurefunc(CharacterFrame, "ShowSubFrame", …)` hides
+  the CS pane and unchecks the logo button when Forever switches tabs. The
+  original `ShowSubFrame` is not replaced. One click on Statistics (or any
+  other mode tab) leaves CS.
+- `/cs geartab` selects the same tab only while `CharacterFrame` is already
+  shown. CS never calls `ShowUIPanel`, `CharacterFrame:Show`, `ShowSubFrame`,
   `SetSelectedModeTabByFrame`, `Expand`, `RefreshDisplay`, or
   `SecureActionButton:Click`.
-- There is **no** `hooksecurefunc` on `CharacterFrame.ShowSubFrame`, `OnShow`,
-  or `OnHide`. The CS window is a `HIGH` strata frame centered on `UIParent`
-  (offset so it is not stacked on the character sheet), titled "Crusader
-  Strike", movable, and closed with the Close button or Escape.
-- The left pane is the CS gear-set doll. **Gear Sets**, **Browser**, and
-  **Stats** are a right-side pop-out (`CrusaderStrikeGearPopout`), the same
-  arrangement as PaperDoll stats / equipment manager / titles: main pane on
-  the left, pane attached to the frame's right edge. 42px icons on the main
-  pane (`INV_Misc_Gear_01`, `INV_Misc_Bag_08`, `INV_Misc_Note_01`) toggle it.
-  Names are tooltips. Clicking the open pane's icon closes the pop-out and
-  hides all three panels so nothing draws on the doll.
+- Close and Escape leave CS and show the previous pane (`PaperDollFrame` if
+  none was recorded).
+- Inside the pane, the left side is the CS gear-set doll. **Gear Sets**,
+  **Browser**, and **Stats** are a right column (`CrusaderStrikeGearPopout`).
+  42px icons (`INV_Misc_Gear_01`, `INV_Misc_Bag_08`, `INV_Misc_Note_01`)
+  toggle it. Names are tooltips. Clicking the open pane's icon closes the
+  column so nothing draws on the doll.
 - Pop-out content is anchored to the pop-out (dungeon list stretches to the
   browser panel, search matches the list width, the result grid fills the
   pane's inner width). It is not positioned with a fixed offset inside the

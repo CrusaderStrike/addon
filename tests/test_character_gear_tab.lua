@@ -96,14 +96,23 @@ describe("character gear tab scaffold", function()
     eq(_G.CharacterFrame.activeSubframe, "PaperDollFrame")
     eq(_G.CharacterFrame._selected, nil)
     eq(_G.CharacterFrame._width, 338)
-    eq(_G._CS_HookSecureCount or 0, prevHookCount)
+    -- One observe-only ShowSubFrame hook. CS does not call ShowSubFrame.
+    eq(_G._CS_HookSecureCount or 0, prevHookCount + 1)
 
     local root = _G.CrusaderStrikeCharacterGearFrame
     ok(root._csOwnedWindow)
     eq(root._csTitle, "Crusader Strike")
-    eq(root._csFillsCharacterFrame, true)
+    eq(root._csContentPane, true)
     eq(root:GetParent(), _G.CharacterFrame)
-    eq(root._allPoints, _G.CharacterFrame)
+    eq(root._allPoints, nil)
+    local rp, rrel, rrp = root:GetPoint(1)
+    eq(rp, "TOPLEFT")
+    eq(rrel, _G.CharacterFrame)
+    eq(rrp, "TOPLEFT")
+    local rp2, rrel2, rrp2 = root:GetPoint(2)
+    eq(rp2, "BOTTOMRIGHT")
+    eq(rrel2, _G.CharacterFrame)
+    eq(rrp2, "BOTTOMRIGHT")
     local doll = _G.CrusaderStrikeGearDoll
     eq(doll:GetParent(), root)
     eq(doll._csPaperDoll, true)
@@ -371,7 +380,8 @@ describe("character gear tab scaffold", function()
     eq(pop._csInFrameColumn, true)
     eq(pop._allPoints, nil)
     eq(root:GetParent(), _G.CharacterFrame)
-    eq(root._allPoints, _G.CharacterFrame)
+    eq(root._allPoints, nil)
+    eq(root._csContentPane, true)
     local point, rel, relPoint, x, y = pop:GetPoint(1)
     eq(point, "TOPLEFT")
     eq(rel, root)
@@ -578,73 +588,78 @@ describe("character gear tab scaffold", function()
     _G.CharacterFrame = prevChar
   end)
 
-  it("hides other character panes while CS is open and restores them on leave", function()
+  it("selects CS as the only content pane and hides it when another tab shows", function()
     local UI = CrusaderStrike.CharacterGearTab
     local prevChar = _G.CharacterFrame
-    local saved = {
-      PaperDollFrame = _G.PaperDollFrame,
-      StatisticsFrame = _G.StatisticsFrame,
-      SkillFrame = _G.SkillFrame,
-      ReputationFrame = _G.ReputationFrame,
-      TalentRespecFrame = _G.TalentRespecFrame,
-      CharacterFrameCloseButton = _G.CharacterFrameCloseButton,
-    }
-    local function pane(name, shown)
-      local frame = CreateFrame("Frame", name)
-      if frame.SetShown then
-        frame:SetShown(shown)
-      elseif shown and frame.Show then
-        frame:Show()
-      end
-      return frame
-    end
-    local stats = pane("StatisticsFrame", true)
-    local paper = pane("PaperDollFrame", true)
-    local skills = pane("SkillFrame", true)
-    local rep = pane("ReputationFrame", false)
-    local talent = pane("TalentRespecFrame", true)
-    function talent:IsProtected()
-      return true
-    end
-    local closeBtn = pane("CharacterFrameCloseButton", true)
-    _G.CharacterFrame = {
-      ModeTabs = {
-        Tabs = {
-          { frameName = "StatisticsFrame", IsShown = function() return true end },
-        },
+    local prevPaper = _G.PaperDollFrame
+    local prevHook = _G._CS_HookSecureCount or 0
+    local tabs = {
+      {
+        frameName = "PaperDollFrame",
+        SetChecked = function(self, checked) self._checked = checked end,
       },
+      {
+        frameName = "StatisticsFrame",
+        SetChecked = function(self, checked) self._checked = checked end,
+      },
+    }
+    local seen = {}
+    local paper = {
+      shown = true,
+      Show = function(self) self.shown = true end,
+      Hide = function(self) self.shown = false end,
+      IsShown = function(self) return self.shown end,
+    }
+    _G.PaperDollFrame = paper
+    _G.CharacterFrame = {
+      ModeTabs = { Tabs = tabs },
       activeSubframe = "PaperDollFrame",
       shown = true,
       IsShown = function(self) return self.shown end,
-      GetChildren = function()
-        return stats, paper, skills, talent, closeBtn
-      end,
     }
-    UI.Leave()
+    function _G.CharacterFrame:ShowSubFrame(frameName)
+      seen[#seen + 1] = frameName
+      self.activeSubframe = frameName
+    end
+    local nTabs = #tabs
     UI.Show()
-    eq(UI.GetPreview().active, true)
+    eq(#tabs, nTabs)
+    eq(_G.CharacterFrameModeTab7, nil)
+    eq(#seen, 0)
+    eq(paper.shown, false)
     local root = _G.CrusaderStrikeCharacterGearFrame
-    ok(root._csOpaqueCover)
-    eq(root:GetFrameLevel(), 1000)
-    eq(stats:IsShown(), false)
-    eq(paper:IsShown(), false)
-    eq(skills:IsShown(), false)
-    eq(rep:IsShown(), false)
-    -- Protected talent UI and the character close button stay up.
-    eq(talent:IsShown(), true)
-    eq(closeBtn:IsShown(), true)
+    ok(root:IsShown())
+    eq(root._allPoints, nil)
+    eq(root:GetParent(), _G.CharacterFrame)
+    local toggle = _G.CrusaderStrikeGearTabToggle
+    eq(toggle:GetChecked(), true)
+    eq(tabs[1]._checked, false)
+    eq(tabs[2]._checked, false)
+    eq(_G._CS_HookSecureCount or 0, prevHook + 1)
+
     UI.Leave()
-    eq(stats:IsShown(), true)
-    eq(paper:IsShown(), true)
-    eq(skills:IsShown(), true)
-    eq(rep:IsShown(), false)
     eq(root:IsShown(), false)
+    eq(paper.shown, true)
+    eq(toggle:GetChecked(), false)
+    eq(#seen, 0)
+
+    paper.shown = true
+    _G.CharacterFrame.activeSubframe = "PaperDollFrame"
+    UI.Show()
+    eq(#seen, 0)
+    eq(paper.shown, false)
+    ok(root:IsShown())
+    eq(_G._CS_HookSecureCount or 0, prevHook + 1)
+    _G.CharacterFrame:ShowSubFrame("StatisticsFrame")
+    eq(#seen, 1)
+    eq(seen[1], "StatisticsFrame")
+    eq(root:IsShown(), false)
+    eq(UI.GetPreview().active, false)
+    eq(toggle:GetChecked(), false)
+    eq(paper.shown, false)
+    eq(#tabs, nTabs)
+
     _G.CharacterFrame = prevChar
-    _G.PaperDollFrame = saved.PaperDollFrame
-    _G.StatisticsFrame = saved.StatisticsFrame
-    _G.SkillFrame = saved.SkillFrame
-    _G.ReputationFrame = saved.ReputationFrame
-    _G.TalentRespecFrame = saved.TalentRespecFrame
-    _G.CharacterFrameCloseButton = saved.CharacterFrameCloseButton
+    _G.PaperDollFrame = prevPaper
   end)
 end)

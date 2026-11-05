@@ -1,24 +1,24 @@
--- Crusader Strike gear pane.
+-- Crusader Strike gear pane, as a mode-tab sibling of Character / Statistics.
 --
--- Fills the open Character tab (parent + SetAllPoints on CharacterFrame) so
--- Gear Sets, Browser, and Stats sit inside that frame, in the same left-doll /
--- right-column arrangement as the character pane. The doll is a CS-owned
--- frame (CrusaderStrikeGearDoll), not CharacterFrame and not Character*Slot.
+-- CrusaderStrikeCharacterGearFrame is a content pane on CharacterFrame, in
+-- the same rectangle PaperDoll uses. It is not a SetAllPoints cover and it
+-- does not sit on the side-tab strip. The doll (CrusaderStrikeGearDoll) and
+-- the sets / browser / stats column are children of that pane.
+--
+-- The logo button uses CharacterFrameModeSideTabTemplate and is NOT inserted
+-- into ModeTabs.Tabs (that injection tainted Character open). Selecting it
+-- hides CharacterFrame.activeSubframe and shows this pane. An observe-only
+-- hooksecurefunc on ShowSubFrame hides this pane when Forever switches tabs.
+-- This file never replaces ShowSubFrame and never calls it.
 --
 -- Taint:
---   * Side-tab launcher uses CharacterFrameModeSideTabTemplate, parented to
---     ModeTabs for look — but NEVER appended to ModeTabs.Tabs (no injection)
---   * No hooksecurefunc on ShowSubFrame / OnShow / OnHide
+--   * No ModeTabs.Tabs write
+--   * No ShowSubFrame replacement, no OnShow hook
 --   * No SetScript swaps on Blizzard paper-doll buttons
---   * No programmatic SecureActionButton:Click / ShowUIPanel / RefreshDisplay
+--   * No ShowUIPanel / CharacterFrame:Show / RefreshDisplay / SecureActionButton:Click
 --   * CS-owned slot buttons (CrusaderStrikeHeadSlot …), never Character*Slot
 --
--- Entry: /cs geartab or the CS side-tab, only while CharacterFrame is already
--- shown. CS never opens CharacterFrame itself.
--- While CS is up, other Character tab panes (PaperDoll, Statistics, …) are
--- Hidden and the CS root is an opaque cover, so their text cannot bleed
--- through the gear-set / browser / stats strip. Leave shows them again.
--- No ShowSubFrame / OnShow hooks. Protected frames are not hidden.
+-- /cs geartab selects this tab only while CharacterFrame is already shown.
 --
 -- Weapon equip uses vanilla class proficiency (Forever 1.60.1 / Classic):
 -- a Druid cannot take swords or crossbows, and nobody can wear two main-hand
@@ -220,34 +220,13 @@ local function filled_count(slots)
   return n
 end
 
-local function apply_backdrop(frame, alpha)
+local function apply_backdrop(frame)
   if frame and frame.SetBackdrop then
     frame:SetBackdrop(BACKDROP)
   end
   if frame and frame.SetBackdropColor then
-    frame:SetBackdropColor(0, 0, 0, alpha or 0.92)
+    frame:SetBackdropColor(0, 0, 0, 0.92)
   end
-end
-
--- Full-frame black plate. Tooltip backdrops inset the fill, which left the
--- gear-set / browser / stats strip transparent over Statistics text.
-local function apply_opaque_plate(frame)
-  apply_backdrop(frame, 1)
-  if not frame or not frame.CreateTexture or frame._csOpaque then
-    return
-  end
-  local bg = frame:CreateTexture(nil, "BACKGROUND")
-  if bg.SetTexture then
-    bg:SetTexture("Interface\\Tooltips\\UI-Tooltip-Background")
-  end
-  if bg.SetVertexColor then
-    bg:SetVertexColor(0, 0, 0, 1)
-  end
-  if bg.SetAllPoints then
-    bg:SetAllPoints(frame)
-  end
-  frame._csOpaque = bg
-  frame._csOpaqueCover = true
 end
 
 local function add_text(parent, template, text, x, y)
@@ -1495,227 +1474,103 @@ local function register_escape_close()
   _G.UISpecialFrames[#_G.UISpecialFrames + 1] = UI.FRAME_NAME
 end
 
-local function place_in_character_frame()
-  local cf = _G.CharacterFrame
-  if not root or not cf then
-    return false
-  end
-  if root.SetParent then
-    root:SetParent(cf)
-  end
-  if root.ClearAllPoints then
-    root:ClearAllPoints()
-  end
-  if root.SetAllPoints then
-    root:SetAllPoints(cf)
-  end
-  if root.SetFrameLevel then
-    root:SetFrameLevel(1000)
-  end
-  root._csFillsCharacterFrame = true
-  return true
-end
-
--- Character-tab content panes. Chrome (mode tabs, close, portrait) stays.
-local FOREIGN_PANE_NAMES = {
-  "PaperDollFrame",
-  "PetPaperDollFrame",
-  "ReputationFrame",
-  "SkillFrame",
-  "SkillsFrame",
-  "HonorFrame",
-  "PVPFrame",
-  "PvpFrame",
-  "TokenFrame",
-  "CurrencyFrame",
-  "CharacterStatsPane",
-  "CharacterStatsFrame",
-  "StatisticsFrame",
-  "CharacterStatisticsFrame",
-  "StatsFrame",
-  "PaperDollTitlesPane",
-  "PaperDollEquipmentManagerPane",
-  "CharacterFrameInset",
-  "CharacterFrameInsetRight",
-}
-
-local FOREIGN_PANE_SET = {}
-for i = 1, #FOREIGN_PANE_NAMES do
-  FOREIGN_PANE_SET[FOREIGN_PANE_NAMES[i]] = true
-end
-
-local coveredPanes = {}
-
-local function frame_name(frame)
-  if not frame then
-    return ""
-  end
-  if frame.GetName then
-    local name = frame:GetName()
-    if type(name) == "string" and name ~= "" then
-      return name
-    end
-  end
-  if type(frame._name) == "string" then
-    return frame._name
-  end
-  return ""
-end
-
-local function frame_parent(frame)
-  if not frame then
-    return nil
-  end
-  if frame.GetParent then
-    return frame:GetParent()
-  end
-  return frame._parent
-end
-
-local function frame_protected(frame)
-  if frame.IsForbidden and frame:IsForbidden() then
-    return true
-  end
-  if frame.IsProtected and frame:IsProtected() then
-    return true
-  end
-  return false
-end
-
-local function is_cs_frame(frame)
-  if frame == root or frame == csToggle or frame == dollFrame or frame == popout then
-    return true
-  end
-  local name = frame_name(frame)
-  return name:find("^CrusaderStrike") ~= nil
-end
-
-local function is_character_chrome(frame, cf)
-  if not frame or frame == cf then
-    return true
-  end
-  if csToggle and frame == csToggle then
-    return true
-  end
-  if cf and frame == cf.ModeTabs then
-    return true
-  end
-  local parent = frame_parent(frame)
-  if cf and cf.ModeTabs and parent == cf.ModeTabs then
-    return true
-  end
-  local name = frame_name(frame)
-  if name:find("ModeTab") or name:find("CloseButton") or name:find("Portrait") then
-    return true
-  end
-  if name:find("Slot$") then
-    return true
-  end
-  return false
-end
-
-local function hosted_by_character(frame, cf)
-  if not cf then
-    return false
-  end
-  local parent = frame_parent(frame)
-  if parent == nil then
-    return true
-  end
-  if parent == cf then
-    return true
-  end
-  local grand = frame_parent(parent)
-  return grand == cf
-end
-
-local function remember_hide(frame, cf)
-  if not frame or frame._csCoverHidden or is_cs_frame(frame) or is_character_chrome(frame, cf) then
+local function anchor_content_pane(frame, cf)
+  if not frame or not cf then
     return
   end
-  if frame_protected(frame) then
-    return
+  if frame.SetParent then
+    frame:SetParent(cf)
   end
-  if not hosted_by_character(frame, cf) then
-    return
+  if frame.ClearAllPoints then
+    frame:ClearAllPoints()
   end
-  if frame.IsShown and not frame:IsShown() then
-    return
-  end
-  if not frame.Hide then
-    return
-  end
-  coveredPanes[#coveredPanes + 1] = frame
-  frame._csCoverHidden = true
-  frame:Hide()
-end
-
-local function cover_foreign_panes(cf)
-  if state._covered then
-    return
-  end
-  for i = 1, #FOREIGN_PANE_NAMES do
-    local frame = _G[FOREIGN_PANE_NAMES[i]]
-    if FOREIGN_PANE_SET[frame_name(frame)] or frame then
-      remember_hide(frame, cf)
-    end
-  end
-  if type(cf.activeSubframe) == "string" then
-    remember_hide(_G[cf.activeSubframe], cf)
-  end
-  local tabs = cf.ModeTabs and cf.ModeTabs.Tabs
-  if type(tabs) == "table" then
-    for _, tab in ipairs(tabs) do
-      if type(tab) == "table" then
-        if type(tab.frameName) == "string" then
-          remember_hide(_G[tab.frameName], cf)
-        end
-        if tab.frame then
-          remember_hide(tab.frame, cf)
-        end
+  local copied = false
+  local paper = _G.PaperDollFrame
+  if paper and paper.GetNumPoints and paper.GetPoint then
+    local n = paper:GetNumPoints()
+    if type(n) == "number" and n > 0 then
+      for i = 1, n do
+        frame:SetPoint(paper:GetPoint(i))
       end
+      copied = true
     end
   end
-  if cf.GetChildren then
-    local children = { cf:GetChildren() }
-    for i = 1, #children do
-      local child = children[i]
-      local name = frame_name(child)
-      if FOREIGN_PANE_SET[name]
-        or name:find("Statistics")
-        or name:find("Stats")
-        or name:find("PaperDoll")
-        or name:find("Reputation")
-        or name:find("Skill")
-        or name:find("Honor")
-        or name:find("Currency")
-        or name:find("Token")
-        or name:find("PVP")
-        or name:find("Pvp")
-        or name:find("Talent")
-      then
-        remember_hide(child, cf)
-      end
-    end
+  -- Same rectangle as the open content pane. Not SetAllPoints: that covers
+  -- the side-tab strip when ModeTabs is drawn inside the sheet.
+  if not copied and frame.SetPoint then
+    frame:SetPoint("TOPLEFT", cf, "TOPLEFT", 0, 0)
+    frame:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", 0, 0)
   end
-  state._covered = true
+  frame._csContentPane = true
 end
 
-local function restore_foreign_panes()
-  if not state._covered then
+local function clear_mode_tab_checks(cf)
+  local tabs = cf and cf.ModeTabs and cf.ModeTabs.Tabs
+  if type(tabs) ~= "table" then
     return
   end
-  for i = #coveredPanes, 1, -1 do
-    local frame = coveredPanes[i]
-    coveredPanes[i] = nil
-    if frame and frame._csCoverHidden then
-      frame._csCoverHidden = nil
-      if frame.Show then
-        frame:Show()
-      end
+  for _, tab in ipairs(tabs) do
+    if tab and tab ~= csToggle and tab.SetChecked then
+      tab:SetChecked(false)
     end
   end
-  state._covered = false
+end
+
+local function hide_active_subframe(cf)
+  local name = cf and cf.activeSubframe
+  if type(name) ~= "string" or name == "" or name == UI.FRAME_NAME then
+    return
+  end
+  state.previousSubframe = name
+  local pane = _G[name]
+  if pane and pane ~= root and pane.Hide then
+    pane:Hide()
+  end
+end
+
+local function show_previous_subframe()
+  local name = state.previousSubframe or "PaperDollFrame"
+  if type(name) ~= "string" or name == "" or name == UI.FRAME_NAME then
+    name = "PaperDollFrame"
+  end
+  local pane = _G[name]
+  if pane and pane ~= root and pane.Show then
+    pane:Show()
+  end
+end
+
+-- Forever switched tabs. Hide CS only. Do not Show the previous pane and
+-- do not call ShowSubFrame; Forever already showed the pane it selected.
+function UI.HideForOtherTab(frameName)
+  if not state.active then
+    return
+  end
+  if type(frameName) == "string" and frameName ~= "" and frameName ~= UI.FRAME_NAME then
+    state.previousSubframe = frameName
+  end
+  state._suppressLeave = true
+  state.active = false
+  refresh_toggle_checked()
+  if root and root.Hide and root.IsShown and root:IsShown() then
+    root:Hide()
+  end
+  state._suppressLeave = false
+end
+
+local function observe_show_subframe(cf)
+  if not cf or cf._csShowSubFrameObserved then
+    return
+  end
+  if type(cf.ShowSubFrame) ~= "function" or type(hooksecurefunc) ~= "function" then
+    return
+  end
+  hooksecurefunc(cf, "ShowSubFrame", function(_, frameName)
+    if frameName == UI.FRAME_NAME then
+      return
+    end
+    UI.HideForOtherTab(frameName)
+  end)
+  cf._csShowSubFrameObserved = true
 end
 
 local function ensure_ui()
@@ -1724,22 +1579,23 @@ local function ensure_ui()
     return false
   end
   if root then
-    return place_in_character_frame()
+    anchor_content_pane(root, cf)
+    return true
   end
 
-  -- Inside the open character tab. Not a UIParent window beside it.
+  -- Content pane on the character sheet. Not a cover over the side tabs.
   root = CreateFrame("Frame", UI.FRAME_NAME, cf, "BackdropTemplate")
   root._csOwnedWindow = true
   root._csTitle = "Crusader Strike"
-  root._csFillsCharacterFrame = true
-  if root.SetFrameLevel then
-    root:SetFrameLevel(1000)
-  end
+  root._csContentPane = true
   if root.EnableMouse then
     root:EnableMouse(true)
   end
-  apply_opaque_plate(root)
+  apply_backdrop(root)
   root:SetScript("OnHide", function()
+    if state._suppressLeave or state._leaving then
+      return
+    end
     UI.Leave()
   end)
   register_escape_close()
@@ -1778,7 +1634,6 @@ local function ensure_ui()
   if iconRow.EnableMouse then
     iconRow:EnableMouse(true)
   end
-  apply_opaque_plate(iconRow)
   if iconRow.SetFrameLevel then
     iconRow:SetFrameLevel(40)
   end
@@ -2014,20 +1869,23 @@ local function ensure_ui()
   end
 
   show_view("sets")
-  return place_in_character_frame()
+  anchor_content_pane(root, cf)
+  return true
 end
 
 function UI.Leave()
-  if state._leaving then
+  if state._leaving or state._suppressLeave then
     return
   end
   state._leaving = true
   state.active = false
   refresh_toggle_checked()
-  restore_foreign_panes()
   if root and root.Hide and root.IsShown and root:IsShown() then
+    state._suppressLeave = true
     root:Hide()
+    state._suppressLeave = false
   end
+  show_previous_subframe()
   state._leaving = false
 end
 
@@ -2037,11 +1895,16 @@ function UI.Enter()
     return
   end
   ensure_toggle(cf)
+  observe_show_subframe(cf)
   if not ensure_ui() then
     return
   end
+  hide_active_subframe(cf)
+  if not state.previousSubframe then
+    state.previousSubframe = "PaperDollFrame"
+  end
   state.active = true
-  cover_foreign_panes(cf)
+  clear_mode_tab_checks(cf)
   refresh_toggle_checked()
   if root then
     root:Show()
