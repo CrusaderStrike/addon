@@ -126,34 +126,38 @@ function G.ValidateUntilLevel(set_type, until_level, player_level)
   if until_level < 1 or until_level > 60 then
     return false, "until_level_out_of_range"
   end
+  -- Match platform/web: null/missing character level is treated as 0.
+  local level = 0
   if type(player_level) == "number" then
-    if player_level >= 60 then
-      return false, "leveling_set_at_max_level"
-    end
-    if until_level <= player_level then
-      return false, "until_level_not_above_current_level"
-    end
+    level = player_level
+  end
+  if level >= 60 then
+    return false, "leveling_set_at_max_level"
+  end
+  if until_level <= level then
+    return false, "until_level_not_above_current_level"
   end
   return true
 end
 
 -- Forever create defaults for /cs gearsets dropdown + form.
--- Below 60: default leveling with until_level = min(60, level+1); max_level also allowed.
+-- Below 60: default leveling with until_level = min(60, max(1, level+1)); max_level also allowed.
 -- At 60+: max_level only (no leveling / until_level).
+-- Missing/0 level matches web CSGearSetRules.minUntil (level null → 0 → until 1).
 function G.CreateDefaults(player_level)
-  local lvl = 1
+  local lvl = 0
   if type(player_level) == "number" then
     lvl = math.floor(player_level)
   end
   if lvl >= 60 then
     return { type = "max_level", until_level = nil, allow_leveling = false }
   end
-  if lvl < 1 then
-    lvl = 1
+  if lvl < 0 then
+    lvl = 0
   end
   return {
     type = "leveling",
-    until_level = math.min(60, lvl + 1),
+    until_level = math.min(60, math.max(1, lvl + 1)),
     allow_leveling = true,
   }
 end
@@ -514,12 +518,22 @@ end
 
 local function reject_message(reason, slot, item_id)
   local msg
-  if reason == "item_not_in_slot" then
+  -- Prefer FailSync / SyncErrorMessage catalog when available (version_conflict etc.).
+  local catalog_code = reason
+  if reason == "stale_base_version" or reason == "version_conflict" then
+    catalog_code = "version_conflict"
+  end
+  if CrusaderStrikeGearEncoder and CrusaderStrikeGearEncoder.SyncErrorMessage
+      and (catalog_code == "version_conflict" or catalog_code == "version_mismatch"
+        or catalog_code == "character_mismatch" or catalog_code == "ignored_op"
+        or catalog_code == "item_not_forever") then
+    msg = CrusaderStrikeGearEncoder.SyncErrorMessage(catalog_code)
+  elseif reason == "item_not_in_slot" then
     msg = "Item is not valid for that slot"
   elseif reason == "list_items_limit" then
     msg = "Gear list item limit reached"
-  elseif reason == "stale_base_version" then
-    msg = "Gear list changed on the server; retrying"
+  elseif reason == "stale_base_version" or reason == "version_conflict" then
+    msg = "This gear set changed on the website. Local changes are kept — sync again to reload and retry."
   elseif reason == "item_not_forever" then
     msg = "Item is not available in Forever"
   else
@@ -725,10 +739,29 @@ function G.ApplyOpsResult(charDB, local_id, result)
     ignored_out[i] = ig
   end
 
+  local ignored_message
+  if #ignored_out > 0 then
+    if CrusaderStrikeGearEncoder and CrusaderStrikeGearEncoder.SyncErrorMessage then
+      ignored_message = CrusaderStrikeGearEncoder.SyncErrorMessage("ignored_op")
+    else
+      ignored_message = "The server ignored some fields on a gear sync op. Local gear changes are kept."
+    end
+  end
+
   -- Successful ops response: leave retryable pending (rebuilt) but clear syncing flag.
   list.syncing = false
   if #errors == 0 and #(list.pending_ops or {}) == 0 then
-    list.last_sync_error = nil
+    if ignored_message then
+      -- Soft notice only — ops applied; pending cleared. Do not FailSync.
+      list.last_sync_error = {
+        code = "ignored_op",
+        message = ignored_message,
+        retryable = false,
+        at = now_iso(),
+      }
+    else
+      list.last_sync_error = nil
+    end
   elseif #errors > 0 then
     list.last_sync_error = {
       code = errors[1].reason,
@@ -743,6 +776,7 @@ function G.ApplyOpsResult(charDB, local_id, result)
     rebuilt = wire_ops(rebuilt),
     errors = errors,
     ignored = ignored_out,
+    ignored_message = ignored_message,
     syncing = false,
   }
 end

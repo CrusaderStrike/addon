@@ -73,7 +73,29 @@ local function json_escape(s)
   return s
 end
 
+-- JSON null sentinel (distinct from Lua nil so object keys survive ToJson).
+-- Use for CSGEAR1 wire fields that must emit explicit null (character_id, id,
+-- until_level on max_level, role_spec). Decode still yields Lua nil.
+CrusaderStrikeEncoder.Null = CrusaderStrikeEncoder.Null or {}
+
+local OBJECT_MT = { __jsontype = "object" }
+
+-- Force empty/non-empty maps to encode as {} not [] (Lua empty tables are ambiguous).
+function CrusaderStrikeEncoder.AsObject(t)
+  if type(t) ~= "table" then
+    t = {}
+  end
+  return setmetatable(t, OBJECT_MT)
+end
+
 local function is_array(t)
+  local mt = getmetatable(t)
+  if mt and mt.__jsontype == "object" then
+    return false
+  end
+  if mt and mt.__jsontype == "array" then
+    return true
+  end
   local n = 0
   for k, _ in pairs(t) do
     if type(k) ~= "number" then
@@ -88,7 +110,7 @@ end
 
 function CrusaderStrikeEncoder.ToJson(value)
   local tv = type(value)
-  if value == nil then
+  if value == nil or value == CrusaderStrikeEncoder.Null then
     return "null"
   elseif tv == "boolean" then
     return value and "true" or "false"
