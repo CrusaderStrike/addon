@@ -98,6 +98,9 @@ local REJECT_MESSAGES = {
   rate_limited = "Crusader Strike rate limit reached. Gear changes are saved locally; try again soon.",
   version_mismatch = "This gear set changed on the website. Local changes are kept — sync again to reload and retry.",
   internal_error = "Crusader Strike hit an unexpected error. Gear changes are saved locally and will retry.",
+  -- platform#54 field-map (validation / malformed JSON) — non-retryable
+  invalid_json = "Crusader Strike rejected the sync payload (invalid JSON). Gear changes are saved locally; update the companion/addon and try again.",
+  validation_error = "Crusader Strike rejected the sync request (validation). Gear changes are saved locally; fix the request or update and try again.",
 }
 
 function GE.RejectMessage(code)
@@ -146,7 +149,8 @@ end
 
 local function default_retryable(code)
   if code == "unauthenticated" or code == "unauthorized"
-      or code == "session_expired" or code == "token_expired" then
+      or code == "session_expired" or code == "token_expired"
+      or code == "invalid_json" or code == "validation_error" then
     return false
   end
   if code == "upstream_unavailable" or code == "api_unavailable"
@@ -167,6 +171,15 @@ local function infer_code_from_status(status, hint)
       end
     end
     return "unauthenticated"
+  end
+  if status == 400 then
+    if type(hint) == "string" then
+      local h = string.lower(hint)
+      if h:find("invalid_json", 1, true) or h == "invalid_json" then
+        return "invalid_json"
+      end
+    end
+    return "validation_error"
   end
   if status == 429 then
     return "rate_limited"
@@ -189,17 +202,19 @@ local function infer_code_from_status(status, hint)
 end
 
 --[[
-  Normalize platform#51/#52 error envelopes for FailSync / companion /sync.
+  Normalize platform#51/#52/#54 error envelopes for FailSync / companion /sync.
 
   Contract (platform#52 / docs/api-errors.md):
     {"error": {"code": "<stable_code>", "message": "...", "retryable": bool, "request_id": "req_…"}}
+  Field-map (platform#54 validation / malformed JSON — not the #52 envelope):
+    {"errors": {"<field>": "<reason>"}}  e.g. {"errors":{"body":"invalid_json"}}
   Also tolerates legacy shapes (string code, {reason=}, bare http_status / Retry-After).
 
-  input: string code | error table | full body with .error | nil
+  input: string code | error table | full body with .error / .errors | nil
   meta:  optional { http_status|status=, retry_after=, headers=, request_id=, retryable= }
 
   Returns { code, message, retryable, retry_after, request_id }
-  (retry_after / request_id may be nil).
+  (retry_after / request_id may be nil). Field-map codes are non-retryable.
 ]]
 function GE.ParseErrorEnvelope(input, meta)
   if type(meta) ~= "table" then
@@ -207,12 +222,38 @@ function GE.ParseErrorEnvelope(input, meta)
   end
 
   local err = input
+  local field_map = nil
   if type(input) == "table" and input.error ~= nil then
     err = input.error
+  elseif type(input) == "table" and type(input.errors) == "table" then
+    -- platform#54 field-map (no nested .error). Prefer over treating the whole
+    -- body as a legacy {code/reason} table.
+    field_map = input.errors
+    err = nil
   end
 
   local code, server_message, retryable
-  if type(err) == "string" then
+  if field_map ~= nil then
+    -- Prefer body=invalid_json → invalid_json; else first field reason / validation_error.
+    local body_reason = field_map.body
+    if body_reason == "invalid_json" then
+      code = "invalid_json"
+      server_message = "invalid_json"
+    else
+      code = "validation_error"
+      -- Surface the first field reason as a hint (stable codes stay validation_error).
+      for _, reason in pairs(field_map) do
+        if type(reason) == "string" and #reason > 0 then
+          server_message = reason
+          if reason == "invalid_json" then
+            code = "invalid_json"
+          end
+          break
+        end
+      end
+    end
+    retryable = false
+  elseif type(err) == "string" then
     code = err
   elseif type(err) == "table" then
     code = err.code or err.reason

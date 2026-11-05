@@ -557,7 +557,8 @@ function G.ApplyOpsResult(charDB, local_id, result)
   if not list or type(result) ~= "table" then
     return nil, "validation"
   end
-  -- Top-level transport / auth failure from companion (platform#51/#52 envelope or legacy).
+  -- Top-level transport / auth / validation failure from companion
+  -- (platform#51/#52 envelope, platform#54 field-map, or legacy).
   -- Do not touch pending_ops; clear syncing and surface a player-visible message.
   if result.error ~= nil then
     local err = result.error
@@ -572,6 +573,27 @@ function G.ApplyOpsResult(charDB, local_id, result)
       retryable = result.retryable,
       request_id = request_id,
     })
+  end
+  -- platform#54 field-map: {"errors":{"body":"invalid_json"}} (and other field reasons).
+  -- Not the #52 envelope — must not fall through as a successful empty ops response.
+  if type(result.errors) == "table" then
+    -- Array-shaped summary.errors from a nested call is numeric; field-maps use string keys.
+    local is_field_map = false
+    for k, v in pairs(result.errors) do
+      if type(k) == "string" and type(v) == "string" then
+        is_field_map = true
+        break
+      end
+    end
+    if is_field_map then
+      return G.FailSync(charDB, local_id, { errors = result.errors }, {
+        http_status = result.http_status or result.status or 400,
+        retry_after = result.retry_after,
+        headers = result.headers,
+        retryable = false,
+        request_id = result.request_id,
+      })
+    end
   end
   list.pending_ops = list.pending_ops or {}
   if type(list.version) ~= "number" then

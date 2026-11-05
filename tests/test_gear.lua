@@ -1375,6 +1375,72 @@ describe("platform#51/#52 error envelopes (#45)", function()
     eq(summary.retryable, true)
   end)
 
+  it("ParseErrorEnvelope maps platform#54 field-map invalid_json (non-retryable)", function()
+    local a = GE.ParseErrorEnvelope({ errors = { body = "invalid_json" } }, { http_status = 400 })
+    eq(a.code, "invalid_json")
+    eq(a.retryable, false)
+    eq(a.request_id, nil)
+    ok(a.message:find("invalid JSON", 1, true) ~= nil)
+    ok(not a.message:find("will retry", 1, true))
+
+    -- Bare field-map without meta status still maps
+    local b = GE.ParseErrorEnvelope({ errors = { body = "invalid_json" } })
+    eq(b.code, "invalid_json")
+    eq(b.retryable, false)
+
+    -- Other field reasons → validation_error (non-retryable)
+    local c = GE.ParseErrorEnvelope({ errors = { name = "required" } }, { http_status = 400 })
+    eq(c.code, "validation_error")
+    eq(c.retryable, false)
+    ok(c.message:find("validation", 1, true) ~= nil)
+
+    -- Must not infer internal_error for 400 field-map
+    local d = GE.ParseErrorEnvelope({ errors = { body = "invalid_json" } }, { http_status = 400 })
+    ok(d.code ~= "internal_error")
+    eq(d.retryable, false)
+
+    -- Bare HTTP 400 (no body) → validation_error, not internal_error / api_unavailable
+    local e = GE.ParseErrorEnvelope({}, { http_status = 400 })
+    eq(e.code, "validation_error")
+    eq(e.retryable, false)
+  end)
+
+  it("ApplyOpsResult / FailSync route 400 field-map through FailSync (pending kept, non-retryable)", function()
+    local db = { gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} } }
+    local list = CrusaderStrikeGearSets.CreateSet(db, { name = "InvJson", type = "max_level" }, 60)
+    CrusaderStrikeGearSets.SetSlot(db, list.local_id, "head", 12345)
+    local before_ops = CrusaderStrikeGearSets.PeekPendingOps(db, list.local_id)
+    local n = #before_ops
+    local before_ids = {}
+    for i, op in ipairs(before_ops) do before_ids[i] = op.op_id end
+    CrusaderStrikeGearSets.BeginSync(db, list.local_id)
+
+    local summary = CrusaderStrikeGearSets.ApplyOpsResult(db, list.local_id, {
+      errors = { body = "invalid_json" },
+      http_status = 400,
+    })
+    eq(summary.code, "invalid_json")
+    eq(summary.retryable, false)
+    eq(summary.pending_kept, n)
+    eq(list.syncing, false)
+    eq(list.last_sync_error.code, "invalid_json")
+    eq(list.last_sync_error.retryable, false)
+    local after = CrusaderStrikeGearSets.PeekPendingOps(db, list.local_id)
+    eq(#after, n)
+    for i, op in ipairs(after) do eq(op.op_id, before_ids[i]) end
+    ok(summary.message:find("invalid JSON", 1, true) ~= nil)
+
+    -- FailSync with full body + meta (companion NotifySyncFailure path)
+    CrusaderStrikeGearSets.BeginSync(db, list.local_id)
+    local s2 = CrusaderStrikeGearSets.FailSync(db, list.local_id, {
+      errors = { body = "invalid_json" },
+    }, { http_status = 400 })
+    eq(s2.code, "invalid_json")
+    eq(s2.retryable, false)
+    eq(s2.pending_kept, n)
+    eq(list.syncing, false)
+  end)
+
   it("keeps validation / conflict handling unchanged alongside envelopes", function()
     local db = { gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} } }
     local list = CrusaderStrikeGearSets.CreateSet(db, { name = "Valid", type = "max_level" }, 60)

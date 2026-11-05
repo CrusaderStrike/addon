@@ -4,6 +4,9 @@ All notable changes to CrusaderStrike (World of Warcraft: Forever only).
 
 ## Unreleased
 
+### Changed
+- **Consume platform#54 invalid_json field-map (#49):** `ParseErrorEnvelope` / `ApplyOpsResult` recognize `{errors:{body:"invalid_json"}}` (and other field-map 400s) as non-retryable `invalid_json` / `validation_error` — not inferred `internal_error`. FailSync clears syncing, keeps pending_ops, surfaces SyncErrorMessage. Locked to CrusaderStrike/platform#54 (`283a775`). Refs #26.
+
 ## 0.3.4 (WoW Forever)
 
 - Release for #26 morning check: includes #45 platform#51/#52 error-envelope handling (#46). No schema change.
