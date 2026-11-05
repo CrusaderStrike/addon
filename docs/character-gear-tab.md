@@ -47,10 +47,16 @@ logo button in the strip.
   Gear Sets, Browser, and Stats. The Browser fills that pane under the icon
   row, with equal left and right edges, so it is centered in the side pane.
 - **Gear Sets**, **Browser**, and **Stats** are inside the side pane. Their
-  icons switch panels. The control that shows or hides the **whole** side
-  pane, including those three icons, is `CrusaderStrikeGearSideToggle`. It
-  sits on the paper doll's top-right corner (the main pane), not inside the
-  side pane. Opening it again shows the panel that was selected last.
+  icons only switch which panel is selected. Show and hide of the whole side
+  pane, including those three icons, follows Forever's native right-pane
+  toggle: `CharacterFrameRightPaneToggleButton`
+  (`CharacterFrame.RightPaneToggleButton`). Its click calls
+  `CharacterFrame:ToggleRightPane`, which sets
+  `CharacterFrame:IsRightPaneCollapsed` (CVar `characterFrameCollapsed`).
+  The addon observes `SetRightPaneCollapsed` with `hooksecurefunc` and reads
+  that flag when the CS tab is shown. It does not replace the button or call
+  `Expand` / `Collapse` / `ToggleRightPane`. Collapsed hides the pop-out,
+  the three icons, and all three panels. Expanded shows the last selected panel.
 - Pop-out content is anchored to the pop-out (dungeon list stretches to the
   browser panel, search matches the list width, the result grid fills the
   pane's inner width). It is not positioned with a fixed offset inside the

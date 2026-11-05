@@ -10,7 +10,7 @@ local L = CrusaderStrikeGearLayout
 L.panes = {
   main = {
     frame = "CrusaderStrikeCharacterGearFrame",
-    owns = { "doll", "sideToggle" },
+    owns = { "doll" },
   },
   side = {
     frame = "CrusaderStrikeGearPopout",
@@ -67,14 +67,18 @@ L.weaponRow = {
   slots = { "main_hand", "off_hand", "ranged", "ammo" },
 }
 
--- Toggle for the whole side pane. It lives on the doll (main pane), at the
--- doll's top-right corner, so it stays visible when the side pane is hidden.
-L.sideToggle = {
-  frame = "CrusaderStrikeGearSideToggle",
-  parent = "doll",
-  anchor = { point = "TOPRIGHT", rel = "doll", relPoint = "TOPRIGHT", x = -4, y = -4 },
-  width = 22,
-  height = 22,
+-- The side pane follows Blizzard's CharacterFrame right-pane toggle.
+-- Frame: CharacterFrameRightPaneToggleButton (parentKey RightPaneToggleButton).
+-- Click calls CharacterFrame:ToggleRightPane -> SetRightPaneCollapsed.
+-- Collapsed state is CharacterFrame:IsRightPaneCollapsed (CVar characterFrameCollapsed).
+-- The addon only observes that; it does not create its own toggle button.
+L.nativeSideToggle = {
+  frame = "CharacterFrameRightPaneToggleButton",
+  parentKey = "RightPaneToggleButton",
+  owner = "CharacterFrame",
+  toggle = "ToggleRightPane",
+  set = "SetRightPaneCollapsed",
+  query = "IsRightPaneCollapsed",
 }
 
 L.iconRow = {

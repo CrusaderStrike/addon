@@ -181,7 +181,6 @@ local csToggle
 local root
 local popout
 local iconRow
-local sideToggle
 local dollFrame
 local ranged_presentation
 local topSetsBtn
@@ -423,11 +422,50 @@ local function refresh_top_tabs()
   show_panel(statsPanel, open and state.view == "stats")
 end
 
--- Shows or hides the whole side pane, including its three icon buttons.
--- Opening restores whichever panel was selected last.
-function UI.ToggleSidePane()
-  state.popout = not state.popout
+local function native_right_pane_collapsed(cf)
+  cf = cf or _G.CharacterFrame
+  if not cf or type(cf.IsRightPaneCollapsed) ~= "function" then
+    return nil
+  end
+  local ok, collapsed = pcall(cf.IsRightPaneCollapsed, cf)
+  if not ok then
+    return nil
+  end
+  return collapsed and true or false
+end
+
+-- Match Blizzard's right pane. Does not call Expand, Collapse, or ToggleRightPane.
+local function apply_native_side_pane(cf)
+  local collapsed = native_right_pane_collapsed(cf)
+  if collapsed == nil then
+    return
+  end
+  state.popout = not collapsed
   refresh_top_tabs()
+end
+
+local function observe_right_pane(cf)
+  if not cf or cf._csRightPaneObserved then
+    return
+  end
+  if type(hooksecurefunc) ~= "function" or type(cf.SetRightPaneCollapsed) ~= "function" then
+    return
+  end
+  hooksecurefunc(cf, "SetRightPaneCollapsed", function()
+    if state.active then
+      apply_native_side_pane(cf)
+    end
+  end)
+  local btn = cf.RightPaneToggleButton or _G.CharacterFrameRightPaneToggleButton
+  if btn and type(btn.HookScript) == "function" and not btn._csRightPaneClickObserved then
+    btn:HookScript("OnClick", function()
+      if state.active then
+        apply_native_side_pane(cf)
+      end
+    end)
+    btn._csRightPaneClickObserved = true
+  end
+  cf._csRightPaneObserved = true
 end
 
 local refresh_browser
@@ -458,6 +496,28 @@ end
 function UI.TogglePane(view)
   if view ~= "browser" and view ~= "stats" then
     view = "sets"
+  end
+  -- When Forever's right-pane toggle exists, it alone shows and hides the
+  -- side pane. These buttons only pick which panel is restored.
+  if native_right_pane_collapsed() ~= nil then
+    if view == "browser" then
+      state.view = "browser"
+    elseif view == "stats" then
+      state.view = "stats"
+    else
+      state.view = "sets"
+    end
+    apply_native_side_pane()
+    if refresh_gear_list then
+      refresh_gear_list()
+    end
+    if refresh_browser then
+      refresh_browser()
+    end
+    if refresh_stats then
+      refresh_stats()
+    end
+    return
   end
   -- Gear Sets is the pane shown on first open, before any tab click. That
   -- first Gear Sets click must keep the pop-out up. Browser and Stats, and a
@@ -2108,22 +2168,6 @@ local function ensure_ui()
     end
   end
 
-  -- Edge control on the doll. Hides and shows the entire side pane.
-  local toggleSpec = (Layout and Layout.sideToggle) or {}
-  local toggleAnchor = toggleSpec.anchor or { point = "TOPRIGHT", relPoint = "TOPRIGHT", x = -4, y = -4 }
-  sideToggle = CreateFrame("Button", toggleSpec.frame or "CrusaderStrikeGearSideToggle", dollFrame, "UIPanelButtonTemplate")
-  sideToggle._csSideToggle = true
-  sideToggle:SetSize(toggleSpec.width or 22, toggleSpec.height or 22)
-  sideToggle:SetPoint(toggleAnchor.point, dollFrame, toggleAnchor.relPoint, toggleAnchor.x or 0, toggleAnchor.y or 0)
-  sideToggle:SetText(">")
-  sideToggle:SetScript("OnClick", function()
-    UI.ToggleSidePane()
-  end)
-  bind_icon_tooltip(sideToggle, "Show or hide the gear side pane")
-  if sideToggle.Show then
-    sideToggle:Show()
-  end
-
   -- CharacterFrame InsetRight: 177 wide, full height of the PaperDoll pane.
   popout = CreateFrame("Frame", "CrusaderStrikeGearPopout", root, "BackdropTemplate")
   popout._csInFrameColumn = true
@@ -2429,6 +2473,7 @@ function UI.Enter()
   end
   ensure_toggle(cf)
   observe_show_subframe(cf)
+  observe_right_pane(cf)
   if not ensure_ui() then
     return
   end
@@ -2443,6 +2488,7 @@ function UI.Enter()
   if root then
     root:Show()
   end
+  apply_native_side_pane(cf)
   refresh_all()
 end
 

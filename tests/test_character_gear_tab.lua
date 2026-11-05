@@ -551,23 +551,10 @@ describe("character gear tab scaffold", function()
     eq(stats:IsShown(), false)
     ok(root:IsShown())
     ok(_G.CrusaderStrikeGearDoll:IsShown())
-    -- Closing the side pane hides its icon buttons too. The edge toggle stays.
+    eq(_G.CrusaderStrikeGearSideToggle, nil)
     eq(_G.CrusaderStrikeGearSetsIcon:IsShown(), false)
     eq(_G.CrusaderStrikeGearBrowserIcon:IsShown(), false)
     eq(_G.CrusaderStrikeGearStatsIcon:IsShown(), false)
-    local sideToggle = _G.CrusaderStrikeGearSideToggle
-    ok(sideToggle ~= nil)
-    ok(sideToggle:IsShown())
-    eq(sideToggle:GetParent(), _G.CrusaderStrikeGearDoll)
-    eq(sideToggle._csSideToggle, true)
-    sideToggle:GetScript("OnClick")(sideToggle)
-    eq(UI.GetPreview().popout, true)
-    eq(UI.GetPreview().view, "browser")
-    ok(pop:IsShown())
-    ok(browser:IsShown())
-    ok(_G.CrusaderStrikeGearSetsIcon:IsShown())
-    ok(_G.CrusaderStrikeGearBrowserIcon:IsShown())
-    ok(_G.CrusaderStrikeGearStatsIcon:IsShown())
 
     -- Re-open stats from the main-pane toggle. Content is the stats panel only.
     UI.TogglePane("stats")
@@ -1072,6 +1059,61 @@ describe("character gear tab scaffold", function()
     eq(L.rangedByClass.PALADIN.empty, "Interface\\Icons\\INV_Misc_Book_11")
     _G.UnitClass = prevClass
     _G.CharacterFrame = prevChar
+  end)
+
+  it("follows the native CharacterFrame right-pane toggle", function()
+    local UI = CrusaderStrike.CharacterGearTab
+    local prevChar = _G.CharacterFrame
+    local cf = {
+      ModeTabs = { Tabs = {} },
+      shown = true,
+      rightPaneCollapsed = false,
+      IsShown = function(self) return self.shown end,
+      IsRightPaneCollapsed = function(self) return self.rightPaneCollapsed == true end,
+      SetRightPaneCollapsed = function(self, collapsed)
+        self.rightPaneCollapsed = collapsed and true or false
+      end,
+      ToggleRightPane = function(self)
+        self:SetRightPaneCollapsed(not self:IsRightPaneCollapsed())
+      end,
+    }
+    cf.RightPaneToggleButton = {
+      HookScript = function(self, event, fn)
+        self._hooks = self._hooks or {}
+        self._hooks[event] = fn
+      end,
+    }
+    _G.CharacterFrameRightPaneToggleButton = cf.RightPaneToggleButton
+    _G.CharacterFrame = cf
+    UI.Show()
+    eq(_G.CrusaderStrikeGearSideToggle, nil)
+    eq(CrusaderStrikeGearLayout.nativeSideToggle.frame, "CharacterFrameRightPaneToggleButton")
+    eq(UI.GetPreview().popout, true)
+    ok(_G.CrusaderStrikeGearPopout:IsShown())
+    ok(_G.CrusaderStrikeGearSetsIcon:IsShown())
+    UI.TogglePane("browser")
+    eq(UI.GetPreview().view, "browser")
+    ok(_G.CrusaderStrikeGearBrowserPanel:IsShown())
+    cf:SetRightPaneCollapsed(true)
+    eq(UI.GetPreview().popout, false)
+    eq(_G.CrusaderStrikeGearPopout:IsShown(), false)
+    eq(_G.CrusaderStrikeGearSetsIcon:IsShown(), false)
+    eq(_G.CrusaderStrikeGearBrowserIcon:IsShown(), false)
+    eq(_G.CrusaderStrikeGearStatsIcon:IsShown(), false)
+    eq(_G.CrusaderStrikeGearBrowserPanel:IsShown(), false)
+    eq(_G.CrusaderStrikeGearSetsPanel:IsShown(), false)
+    eq(_G.CrusaderStrikeGearStatsPanel:IsShown(), false)
+    ok(_G.CrusaderStrikeGearDoll:IsShown())
+    cf:ToggleRightPane()
+    eq(cf:IsRightPaneCollapsed(), false)
+    eq(UI.GetPreview().popout, true)
+    eq(UI.GetPreview().view, "browser")
+    ok(_G.CrusaderStrikeGearPopout:IsShown())
+    ok(_G.CrusaderStrikeGearBrowserPanel:IsShown())
+    ok(_G.CrusaderStrikeGearSetsIcon:IsShown())
+    eq(_G.CrusaderStrikeGearSetsPanel:IsShown(), false)
+    _G.CharacterFrame = prevChar
+    _G.CharacterFrameRightPaneToggleButton = nil
   end)
 
   it("keeps the pop-out open the first time Gear Sets is selected", function()
