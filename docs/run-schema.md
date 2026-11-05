@@ -86,7 +86,7 @@ Examples:
 | `realm` / `character` | string | yes | Logger character |
 | `instance.id` | int | yes | Map / instance id |
 | `instance.name` | string | yes | Display name |
-| `instance.difficulty` | int/null | no | Client difficulty id (TODO: confirm Forever difficulty ids) |
+| `instance.difficulty` | int/null | no | Client difficulty id (Forever 5-player Normal = 1; see docs/sources.md) |
 | `instance.difficultyName` | string/null | no | |
 | `startedAt` / `endedAt` | int/null | start yes | Unix seconds |
 | `durationSec` | int/null | no | `endedAt - startedAt` when closed |

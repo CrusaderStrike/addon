@@ -17,6 +17,34 @@ describe("bosses Forever", function()
     eq(CrusaderStrikeBosses.defaultVersion, "forever")
   end)
 
+  it("includes verified Forever new dungeon map ids", function()
+    local t = CrusaderStrikeBosses.GetTable("forever")
+    eq(t[3065].name, "The Hall of Thanes")
+    eq(t[2999].name, "Ruins of Lordaeron")
+    eq(t[2998].name, "Excavation Site: Wetlands")
+    eq(t[2959].name, "City of Dalaran")
+    ok(CrusaderStrikeBosses.IsFinalBoss("forever", 3065, 261319))
+    ok(CrusaderStrikeBosses.IsFinalBoss("forever", 2999, 250657))
+    ok(CrusaderStrikeBosses.IsFinalBoss("forever", 2998, 260326))
+    ok(CrusaderStrikeBosses.IsFinalBoss("forever", 2959, 246020))
+  end)
+
+  it("looks up Magmatus and Faldrim in Hall of Thanes", function()
+    local boss = CrusaderStrikeBosses.Lookup("forever", 3065, 261316)
+    eq(boss.name, "Magmatus")
+    local faldrim = CrusaderStrikeBosses.Lookup("forever", 3065, 261306)
+    eq(faldrim.name, "Faldrim Anvilmar")
+    ok(not CrusaderStrikeBosses.IsFinalBoss("forever", 3065, 261306))
+  end)
+
+  it("lists pending Forever dungeons without invented map ids", function()
+    local pending = CrusaderStrikeBosses.pendingForeverDungeons
+    ok(type(pending) == "table")
+    eq(#pending, 5)
+    eq(pending[1].name, "The Drowned City")
+    eq(CrusaderStrikeBosses.normalDifficultyId, 1)
+  end)
+
   it("creature guid parse helper", function()
     -- Inline the same pattern DungeonLog uses (avoid loading CreateFrame-heavy files).
     local function creature_id_from_guid(guid)
@@ -24,6 +52,7 @@ describe("bosses Forever", function()
       return id and tonumber(id) or nil
     end
     eq(creature_id_from_guid("Creature-0-1234-36-12-639-00001"), 639)
+    eq(creature_id_from_guid("Creature-0-1234-3065-12-261319-00001"), 261319)
     eq(creature_id_from_guid("Player-1-ABCDEF"), nil)
   end)
 end)
