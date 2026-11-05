@@ -1812,7 +1812,7 @@ describe("CSGEAR1 morning-path harden (#55)", function()
     eq(#summary.ignored, 1)
     ok(type(summary.ignored_message) == "string")
     ok(summary.ignored_message:find("ignored", 1, true) ~= nil)
-    eq(list.last_sync_error.code, "ignored_op")
+    eq(list.last_sync_error, nil) -- soft notice only; cleared after a successful apply
     eq(#CrusaderStrikeGearSets.PeekPendingOps(db, list.local_id), 0)
   end)
 

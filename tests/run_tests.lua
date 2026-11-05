@@ -81,6 +81,7 @@ local files = {
   "test_detection.lua",
   "test_wishlist.lua",
   "test_gear.lua",
+  "test_gear_live_compat.lua",
   "test_simulate.lua",
 }
 

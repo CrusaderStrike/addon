@@ -86,6 +86,79 @@ function CS.Print(msg)
   DEFAULT_CHAT_FRAME:AddMessage("|cffd4a017CrusaderStrike|r: " .. tostring(msg))
 end
 
+-- Item exists in the client item DB? GetItemInfoInstant is a plain (non-protected)
+-- client lookup; when it is missing we cannot tell, so treat the id as known.
+function CS.ItemKnown(item_id)
+  if type(GetItemInfoInstant) ~= "function" then
+    return true
+  end
+  local ok, id = pcall(GetItemInfoInstant, item_id)
+  return ok and id ~= nil
+end
+
+-- /cs gearsets check: one line so Drew can confirm the build in game (addon#57).
+function CS.GearSetsCheckLine()
+  local GE = CrusaderStrikeGearEncoder
+  local csgear = (GE and GE.CSGEAR_VERSION) and ("CSGEAR" .. tostring(GE.CSGEAR_VERSION)) or "unavailable"
+  local count = 0
+  if CrusaderStrikeGearSets and CS.GetCharDB then
+    count = CrusaderStrikeGearSets.CountActive(CS.GetCharDB()) or 0
+  end
+  return "addon v" .. tostring(CS.VERSION) .. " | " .. csgear .. " | saved gear sets: " .. tostring(count)
+end
+
+-- /cs import: decode → validate (incl. item ids) → apply on a snapshot. Any failure
+-- prints ONE chat line saying what failed; nothing is saved (no partial sets).
+function CS.ImportGearString(raw)
+  local GE = CrusaderStrikeGearEncoder
+  if not GE or not CrusaderStrikeGearSets then
+    CS.Print("import unavailable")
+    return false, "encoder"
+  end
+  local realm = (GetNormalizedRealmName and GetNormalizedRealmName()) or (GetRealmName and GetRealmName()) or ""
+  local character = (UnitName and UnitName("player")) or ""
+  local okcall, payload, err, detail = pcall(GE.Decode, raw, {
+    expect_realm = realm,
+    expect_character = character,
+    item_known = CS.ItemKnown,
+  })
+  if not okcall then
+    payload, err, detail = nil, "bad_json", nil
+  end
+  if not payload then
+    CS.Print(GE.ImportErrorLine(err, detail))
+    return false, err
+  end
+  -- Never apply equipped from import (strip if present).
+  payload.equipped = nil
+  local okapply, ok, aerr = pcall(CrusaderStrikeGearSets.ApplyImport, CS.GetCharDB(), payload)
+  if not okapply then
+    ok, aerr = false, "validation"
+  end
+  if not ok then
+    CS.Print(GE.ImportErrorLine(aerr))
+    return false, aerr
+  end
+  CS.Print("Imported gear sets (" .. tostring(#(payload.lists or {})) .. " lists)")
+  -- Web may echo server rejections (e.g. item_not_forever) alongside applied lists.
+  if type(payload.rejects) == "table" then
+    for _, r in ipairs(payload.rejects) do
+      local msg = r.message
+      if type(msg) ~= "string" or msg == "" then
+        msg = GE.RejectMessage(r.code)
+      end
+      if r.item_id then
+        msg = msg .. " (item " .. tostring(r.item_id) .. ")"
+      end
+      if r.slot then
+        msg = msg .. " [" .. tostring(r.slot) .. "]"
+      end
+      CS.Print("Import note: " .. msg)
+    end
+  end
+  return true
+end
+
 function CS.Debug(msg)
   if CrusaderStrikeDB and CrusaderStrikeDB.settings and CrusaderStrikeDB.settings.debug then
     CS.Print("[debug] " .. tostring(msg))
@@ -238,7 +311,10 @@ SlashCmdList["CRUSADERSTRIKE"] = function(msg)
       CS.Print("loot browser unavailable")
     end
   elseif cmd == "gearsets" or cmd == "gear" then
-    if CS.GearSetsUI and CS.GearSetsUI.Show then
+    local sub = rest and rest:match("^(%S+)")
+    if sub == "check" then
+      CS.Print(CS.GearSetsCheckLine())
+    elseif CS.GearSetsUI and CS.GearSetsUI.Show then
       CS.GearSetsUI.Show()
     else
       CS.Print("gear sets UI unavailable")
@@ -249,46 +325,8 @@ SlashCmdList["CRUSADERSTRIKE"] = function(msg)
       CS.Print("usage: /cs import <CSGEAR1:…|c=…>")
       return
     end
-    if not CrusaderStrikeGearEncoder or not CrusaderStrikeGearSets then
-      CS.Print("import unavailable")
-      return
-    end
-    local realm = (GetNormalizedRealmName and GetNormalizedRealmName()) or (GetRealmName and GetRealmName()) or ""
-    local character = (UnitName and UnitName("player")) or ""
-    local GE = CrusaderStrikeGearEncoder
-    local payload, err = GE.Decode(raw, {
-      expect_realm = realm,
-      expect_character = character,
-    })
-    if not payload then
-      CS.Print(GE.RejectMessage(err))
-      return
-    end
-    -- Never apply equipped from import (strip if present).
-    payload.equipped = nil
-    local ok, aerr = CrusaderStrikeGearSets.ApplyImport(CS.GetCharDB(), payload)
-    if not ok then
-      CS.Print(GE.RejectMessage(aerr))
-      return
-    end
-    CS.Print("Imported gear sets (" .. tostring(#(payload.lists or {})) .. " lists)")
-    -- Web may echo server rejections (e.g. item_not_forever) alongside applied lists.
-    if type(payload.rejects) == "table" then
-      for _, r in ipairs(payload.rejects) do
-        local msg = r.message
-        if type(msg) ~= "string" or msg == "" then
-          msg = GE.RejectMessage(r.code)
-        end
-        if r.item_id then
-          msg = msg .. " (item " .. tostring(r.item_id) .. ")"
-        end
-        if r.slot then
-          msg = msg .. " [" .. tostring(r.slot) .. "]"
-        end
-        CS.Print("Import note: " .. msg)
-      end
-    end
+    CS.ImportGearString(raw)
   else
-    CS.Print("Commands: /cs loot | /cs wishlist | /cs gearsets | /cs import <CSGEAR1> | /cs export [key] | /cs status | /cs pvp | /cs debug [on|off] | /cs debug simulate kill [boss]|death [unit] | /cs debug events [on|off|dump]")
+    CS.Print("Commands: /cs loot | /cs wishlist | /cs gearsets [check] | /cs import <CSGEAR1> | /cs export [key] | /cs status | /cs pvp | /cs debug [on|off] | /cs debug simulate kill [boss]|death [unit] | /cs debug events [on|off|dump]")
   end
 end

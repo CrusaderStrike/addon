@@ -1,0 +1,54 @@
+{
+  "character": {
+    "id": "char_01JLIVEGEARLISTS0000000001",
+    "character_name": "Snipy",
+    "realm": "nightslayer",
+    "region": "us",
+    "level": 42
+  },
+  "items": [
+    {
+      "id": "3f2a9c4e-1b7d-4e2f-9a6c-5d8e7f0a1b21",
+      "character_id": "char_01JLIVEGEARLISTS0000000001",
+      "owner_user_id": "0d4c1e2f-7a8b-4c9d-8e1f-2a3b4c5d6e70",
+      "name": "Leveling 50",
+      "visibility": "private",
+      "type": "leveling",
+      "until_level": 50,
+      "role_spec": "Fury",
+      "outgrown": false,
+      "edited_at": "2026-11-05T09:12:44Z",
+      "slots": { "head": 10328, "neck": null, "chest": 10329, "main_hand": 12784, "wrist": 14148 },
+      "version": 7,
+      "updated_at": "2026-11-05T09:12:44Z",
+      "updated_source": "web",
+      "items": [
+        { "slot": "head", "item_id": 10328 },
+        { "slot": "chest", "item_id": 10329 },
+        { "slot": "main_hand", "item_id": 12784 },
+        { "slot": "wrist", "item_id": 14148 }
+      ]
+    },
+    {
+      "id": "8c1d0e5f-6a2b-4d3c-b7e8-9f0a1b2c3d44",
+      "character_id": "char_01JLIVEGEARLISTS0000000001",
+      "owner_user_id": "0d4c1e2f-7a8b-4c9d-8e1f-2a3b4c5d6e70",
+      "name": "Tank BiS",
+      "visibility": "guild",
+      "type": "max_level",
+      "until_level": null,
+      "role_spec": null,
+      "outgrown": false,
+      "edited_at": "2026-11-05T09:20:03Z",
+      "slots": { "chest": 16966, "off_hand": 12602, "finger1": 13098 },
+      "version": 3,
+      "updated_at": "2026-11-05T09:20:03Z",
+      "updated_source": "addon",
+      "items": [
+        { "slot": "chest", "item_id": 16966 },
+        { "slot": "off_hand", "item_id": 12602 },
+        { "slot": "finger1", "item_id": 13098 }
+      ]
+    }
+  ]
+}
