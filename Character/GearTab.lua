@@ -34,18 +34,33 @@ local UI = CS.CharacterGearTab
 
 UI.FRAME_NAME = "CrusaderStrikeCharacterGearFrame"
 
--- Left pane only. The sets/browser/stats pop-out hangs off the right edge.
--- Deliberately not CharacterFrame's dimensions.
-UI.WINDOW_WIDTH = 292
-UI.WINDOW_HEIGHT = 600
-UI.POPOUT_WIDTH = 320
-UI.POPOUT_INSET = 8
-UI.POPOUT_SCROLLBAR = 26
+-- Classic PaperDoll content (CharacterFrame) and the collapsible right pane
+-- that holds Character Stats / Titles / Equipment Manager.
+-- Sizes are the Blizzard PaperDoll sidebar geometry (read-only reference):
+--   PaperDoll / CharacterFrame content 338 x 424
+--   Item slots 37; left column TOPLEFT 21,-76 step -4; right TOPRIGHT -21,-76
+--   Weapons BOTTOMLEFT 122,20 then +5: main hand, off hand, ranged
+--   PaperDollSidebarTabTemplate 33 x 35, 4px gap, right-aligned
+--   CharacterFrame InsetRight width 177
+UI.PAPERDOLL_WIDTH = 338
+UI.PAPERDOLL_HEIGHT = 424
+UI.SIDEBAR_WIDTH = 177
+UI.SIDEBAR_TAB_W = 33
+UI.SIDEBAR_TAB_H = 35
+UI.SIDEBAR_TAB_GAP = 4
+UI.WEAPON_ROW_X = 122
+UI.WEAPON_ROW_Y = 20
+UI.WEAPON_ROW_GAP = 5
+UI.POPOUT_WIDTH = UI.SIDEBAR_WIDTH
+UI.POPOUT_INSET = 4
+UI.POPOUT_SCROLLBAR = 22
 UI.POPOUT_INNER = UI.POPOUT_WIDTH - (UI.POPOUT_INSET * 2) - UI.POPOUT_SCROLLBAR
--- Icon row and pop-out share this offset so the pane lines up with the toggles.
-UI.POPOUT_TOP = -36
-local DOLL_WIDTH = 236
-local DOLL_TOP = -84
+local PAPERDOLL_WIDTH = UI.PAPERDOLL_WIDTH
+local PAPERDOLL_HEIGHT = UI.PAPERDOLL_HEIGHT
+local SLOT_LEFT_X = 21
+local SLOT_TOP_Y = -76
+local SLOT_RIGHT_X = -21
+local SLOT_STEP = 37 + 4
 
 -- CS-owned slot buttons. Names match GearSlots wire slots; globals are
 -- CrusaderStrike* so Character*Slot is never touched.
@@ -1297,15 +1312,23 @@ local function make_slot_button(parent, info, x, y)
   return btn
 end
 
+local function place_slot(info, point, relPoint, x, y)
+  local btn = make_slot_button(dollFrame, info, 0, 0)
+  if btn.ClearAllPoints then
+    btn:ClearAllPoints()
+  end
+  btn:SetPoint(point, dollFrame, relPoint, x, y)
+  btn._csAnchor = point
+  return btn
+end
+
 local function build_doll(parent)
   dollFrame = CreateFrame("Frame", "CrusaderStrikeGearDoll", parent, "BackdropTemplate")
-  -- Own paper-doll frame. It uses the classic slot grid and empty-slot art,
-  -- and it is not CharacterFrame (no SetAllPoints on the character tab).
+  -- PaperDoll-sized viewer. Not CharacterFrame and not stretched over the sheet.
   dollFrame._csPaperDoll = true
   dollFrame._csOwnedDoll = true
-  dollFrame:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, DOLL_TOP)
-  dollFrame:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 8, 10)
-  dollFrame:SetWidth(DOLL_WIDTH)
+  dollFrame:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
+  dollFrame:SetSize(PAPERDOLL_WIDTH, PAPERDOLL_HEIGHT)
   if dollFrame.EnableMouse then
     dollFrame:EnableMouse(true)
   end
@@ -1313,44 +1336,35 @@ local function build_doll(parent)
     dollFrame:SetFrameLevel(20)
   end
   apply_backdrop(dollFrame)
-  add_text(dollFrame, "GameFontNormal", "Gear set", 8, -8)
 
-  -- Classic two-column paperdoll layout from GearSlots.LAYOUT.
-  local layout = (CrusaderStrikeGearSlots and CrusaderStrikeGearSlots.LAYOUT) or {
-    { "head", "hands" },
-    { "neck", "waist" },
-    { "shoulder", "legs" },
-    { "back", "feet" },
-    { "chest", "finger1" },
-    { "shirt", "finger2" },
-    { "tabard", "trinket1" },
-    { "wrist", "trinket2" },
-    { "main_hand", "off_hand" },
-    { "ranged", nil },
-  }
   local bySlot = {}
   for _, info in ipairs(UI.SLOT_BUTTONS) do
     bySlot[info.slot] = info
   end
-  local top = -28
-  local leftX = 12
-  local rightX = 170
-  local step = SLOT_SIZE + 4
-  for rowIndex, pair in ipairs(layout) do
-    local y = top - ((rowIndex - 1) * step)
-    local leftSlot = pair[1]
-    local rightSlot = pair[2]
-    if leftSlot and bySlot[leftSlot] then
-      make_slot_button(dollFrame, bySlot[leftSlot], leftX, y)
-    end
-    if rightSlot and bySlot[rightSlot] then
-      make_slot_button(dollFrame, bySlot[rightSlot], rightX, y)
-    end
+  local leftCol = { "head", "neck", "shoulder", "back", "chest", "shirt", "tabard", "wrist" }
+  local rightCol = { "hands", "waist", "legs", "feet", "finger1", "finger2", "trinket1", "trinket2" }
+  for i, slot in ipairs(leftCol) do
+    place_slot(bySlot[slot], "TOPLEFT", "TOPLEFT", SLOT_LEFT_X, SLOT_TOP_Y - ((i - 1) * SLOT_STEP))
+  end
+  for i, slot in ipairs(rightCol) do
+    place_slot(bySlot[slot], "TOPRIGHT", "TOPRIGHT", SLOT_RIGHT_X, SLOT_TOP_Y - ((i - 1) * SLOT_STEP))
+  end
+  -- PaperDoll weapon row: main hand, off hand, ranged, bottom-aligned.
+  local weapons = { "main_hand", "off_hand", "ranged" }
+  for i, slot in ipairs(weapons) do
+    local x = UI.WEAPON_ROW_X + ((i - 1) * (SLOT_SIZE + UI.WEAPON_ROW_GAP))
+    place_slot(bySlot[slot], "BOTTOMLEFT", "BOTTOMLEFT", x, UI.WEAPON_ROW_Y)
   end
 
-  statusText = add_text(dollFrame, "GameFontDisableSmall", "", 8, -28 - (#layout * step) - 4)
+  statusText = add_text(dollFrame, "GameFontDisableSmall", "", 8, -8)
+  if statusText.ClearAllPoints then
+    statusText:ClearAllPoints()
+  end
+  if statusText.SetPoint then
+    statusText:SetPoint("BOTTOM", dollFrame, "BOTTOM", 0, UI.WEAPON_ROW_Y + SLOT_SIZE + 6)
+  end
   if statusText.SetWidth then
-    statusText:SetWidth(200)
+    statusText:SetWidth(140)
   end
   set_status("Left-click browser to equip. Right-click a slot to unequip.")
 end
@@ -1627,10 +1641,11 @@ local function ensure_ui()
     dollFrame:Show()
   end
 
-  -- Sidebar toggles stay inside the tab, above the right column.
+  -- Gear Sets / Browser / Stats. Reparented onto the sidebar once it exists
+  -- so they share the PaperDoll sidebar-tab row (33x35, 4px gap, right-aligned).
   local iconRow = CreateFrame("Frame", "CrusaderStrikeGearIconRow", root)
-  iconRow:SetSize((ICON_SIZE * 3) + 8, ICON_SIZE)
-  iconRow:SetPoint("TOPLEFT", root, "TOPLEFT", 8, UI.POPOUT_TOP)
+  iconRow:SetSize((UI.SIDEBAR_TAB_W * 3) + (UI.SIDEBAR_TAB_GAP * 2), UI.SIDEBAR_TAB_H)
+  iconRow:SetPoint("TOPLEFT", root, "TOPLEFT", 0, 0)
   if iconRow.EnableMouse then
     iconRow:EnableMouse(true)
   end
@@ -1659,11 +1674,13 @@ local function ensure_ui()
     UI.TogglePane("stats")
   end)
 
-  -- Right column inside the tab, beside the CS doll. Not hung off the frame.
+  -- CharacterFrame InsetRight: 177 wide, full height of the PaperDoll pane.
   popout = CreateFrame("Frame", "CrusaderStrikeGearPopout", root, "BackdropTemplate")
   popout._csInFrameColumn = true
-  popout:SetPoint("TOPLEFT", root, "TOPLEFT", 8 + DOLL_WIDTH + 8, DOLL_TOP)
-  popout:SetPoint("BOTTOMRIGHT", root, "BOTTOMRIGHT", -8, 10)
+  popout._csSidebar = true
+  popout:SetWidth(UI.SIDEBAR_WIDTH)
+  popout:SetPoint("TOPLEFT", dollFrame, "TOPRIGHT", 0, 0)
+  popout:SetPoint("BOTTOMLEFT", dollFrame, "BOTTOMRIGHT", 0, 0)
   if popout.SetClipsChildren then
     popout:SetClipsChildren(true)
   end
@@ -1674,9 +1691,40 @@ local function ensure_ui()
     popout:SetFrameLevel(30)
   end
 
+  -- Sidebar tab row sits in the pane, same slot as Stats / Titles / Equipment.
+  if iconRow.SetParent then
+    iconRow:SetParent(popout)
+  end
+  if iconRow.ClearAllPoints then
+    iconRow:ClearAllPoints()
+  end
+  iconRow:SetPoint("TOPRIGHT", popout, "TOPRIGHT", -6, -4)
+  local function size_sidebar_tab(btn)
+    btn:SetSize(UI.SIDEBAR_TAB_W, UI.SIDEBAR_TAB_H)
+    if btn.ClearAllPoints then
+      btn:ClearAllPoints()
+    end
+  end
+  size_sidebar_tab(topStatsBtn)
+  size_sidebar_tab(topBrowserBtn)
+  size_sidebar_tab(topSetsBtn)
+  topStatsBtn:SetPoint("RIGHT", iconRow, "RIGHT", 0, 0)
+  topBrowserBtn:SetPoint("RIGHT", topStatsBtn, "LEFT", -UI.SIDEBAR_TAB_GAP, 0)
+  topSetsBtn:SetPoint("RIGHT", topBrowserBtn, "LEFT", -UI.SIDEBAR_TAB_GAP, 0)
+
+  local sidebarTop = -(4 + UI.SIDEBAR_TAB_H + 4)
+  local function anchor_sidebar_panel(panel)
+    if panel.ClearAllPoints then
+      panel:ClearAllPoints()
+    end
+    panel:SetPoint("TOPLEFT", popout, "TOPLEFT", 0, sidebarTop)
+    panel:SetPoint("BOTTOMRIGHT", popout, "BOTTOMRIGHT", 0, 0)
+    panel._csSidebarPanel = true
+  end
+
   -- Pane 1: Gear Sets list
   setsPanel = CreateFrame("Frame", "CrusaderStrikeGearSetsPanel", popout, "BackdropTemplate")
-  setsPanel:SetAllPoints(popout)
+  anchor_sidebar_panel(setsPanel)
   apply_backdrop(setsPanel)
   add_text(setsPanel, "GameFontNormal", "Gear Sets", 8, -8)
   setsEmpty = add_text(
@@ -1731,7 +1779,7 @@ local function ensure_ui()
 
   -- Pane 2: Gear Browser
   browserPanel = CreateFrame("Frame", "CrusaderStrikeGearBrowserPanel", popout, "BackdropTemplate")
-  browserPanel:SetAllPoints(popout)
+  anchor_sidebar_panel(browserPanel)
   if browserPanel.EnableMouse then
     browserPanel:EnableMouse(true)
   end
@@ -1842,7 +1890,7 @@ local function ensure_ui()
 
   -- Pane 3: Stats
   statsPanel = CreateFrame("Frame", "CrusaderStrikeGearStatsPanel", popout, "BackdropTemplate")
-  statsPanel:SetAllPoints(popout)
+  anchor_sidebar_panel(statsPanel)
   if statsPanel.EnableMouse then
     statsPanel:EnableMouse(true)
   end
