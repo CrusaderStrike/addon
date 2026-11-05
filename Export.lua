@@ -1,5 +1,6 @@
 --[[
-  /cs export — show a versioned copy-paste export string in an EditBox.
+  /cs export — show versioned copy-paste strings in an EditBox.
+  Box contains CSRUN1: (unchanged) then CSGEAR1:, plus a separate Copy gear button.
 ]]
 
 CrusaderStrike = CrusaderStrike or {}
@@ -7,14 +8,14 @@ local CS = CrusaderStrike
 CS.Export = CS.Export or {}
 local Ex = CS.Export
 
-local frame, edit, scroll
+local frame, edit, scroll, gearEdit
 
 local function ensure_ui()
   if frame then
     return
   end
   frame = CreateFrame("Frame", "CrusaderStrikeExportFrame", UIParent, "BackdropTemplate")
-  frame:SetSize(520, 220)
+  frame:SetSize(520, 300)
   frame:SetPoint("CENTER")
   frame:SetFrameStrata("DIALOG")
   frame:SetMovable(true)
@@ -40,11 +41,11 @@ local function ensure_ui()
 
   local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   hint:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
-  hint:SetText("Ctrl+C to copy, then paste into crusaderstrike.gg")
+  hint:SetText("CSRUN1 then CSGEAR1. Ctrl+C to copy; use Copy gear for the gear line only.")
 
   scroll = CreateFrame("ScrollFrame", "CrusaderStrikeExportScroll", frame, "UIPanelScrollFrameTemplate")
   scroll:SetPoint("TOPLEFT", 12, -48)
-  scroll:SetPoint("BOTTOMRIGHT", -30, 40)
+  scroll:SetPoint("BOTTOMRIGHT", -30, 70)
 
   edit = CreateFrame("EditBox", "CrusaderStrikeExportEdit", scroll)
   edit:SetMultiLine(true)
@@ -55,6 +56,16 @@ local function ensure_ui()
     frame:Hide()
   end)
   scroll:SetScrollChild(edit)
+
+  -- Hidden single-line buffer for Copy gear (selects CSGEAR1 only).
+  gearEdit = CreateFrame("EditBox", "CrusaderStrikeExportGearEdit", frame)
+  gearEdit:SetMultiLine(false)
+  gearEdit:SetFontObject(GameFontHighlightSmall)
+  gearEdit:SetWidth(1)
+  gearEdit:SetHeight(1)
+  gearEdit:SetPoint("TOPLEFT", 0, 0)
+  gearEdit:SetAutoFocus(false)
+  gearEdit:Hide()
 
   local close = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
   close:SetSize(80, 22)
@@ -71,6 +82,23 @@ local function ensure_ui()
   selectAll:SetScript("OnClick", function()
     edit:SetFocus()
     edit:HighlightText()
+  end)
+
+  local copyGear = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+  copyGear:SetSize(100, 22)
+  copyGear:SetPoint("RIGHT", selectAll, "LEFT", -8, 0)
+  copyGear:SetText("Copy gear")
+  copyGear:SetScript("OnClick", function()
+    local gear = frame._gearLine
+    if not gear or gear == "" then
+      CS.Print("No gear export available")
+      return
+    end
+    gearEdit:Show()
+    gearEdit:SetText(gear)
+    gearEdit:SetFocus()
+    gearEdit:HighlightText()
+    CS.Print("Gear line selected — Ctrl+C to copy")
   end)
 
   frame:Hide()
@@ -90,7 +118,6 @@ local function pick_run(keyHint)
   if active then
     return active
   end
-  -- Most recently started closed/completed run.
   local best
   for _, run in pairs(charDB.runs or {}) do
     if not best or (run.startedAt or 0) > (best.startedAt or 0) then
@@ -105,20 +132,55 @@ function Ex.BuildString(run)
   return CrusaderStrikeEncoder.EncodeRun(payload)
 end
 
+function Ex.BuildGearString()
+  if not CrusaderStrikeGearSets or not CrusaderStrikeGearEncoder then
+    return nil, "unavailable"
+  end
+  local charDB = CS.GetCharDB()
+  local realm = (GetNormalizedRealmName and GetNormalizedRealmName()) or (GetRealmName and GetRealmName()) or ""
+  local character = (UnitName and UnitName("player")) or ""
+  local payload = CrusaderStrikeGearSets.BuildExportPayload(charDB, {
+    realm = realm,
+    character = character,
+    region = (charDB.gearSets and charDB.gearSets.region) or "us",
+  })
+  return CrusaderStrikeGearEncoder.Encode(payload)
+end
+
 function Ex.Show(keyHint)
+  ensure_ui()
+  local lines = {}
   local run = pick_run(keyHint)
-  if not run then
-    CS.Print("No runs to export yet.")
+  local runLabel = nil
+  if run then
+    lines[#lines + 1] = Ex.BuildString(run)
+    runLabel = run.instance and run.instance.name or run.idempotencyKey
+  else
+    CS.Print("No runs to export yet (gear line still available).")
+  end
+  local gear, gerr = Ex.BuildGearString()
+  if gear then
+    lines[#lines + 1] = gear
+    frame._gearLine = gear
+  else
+    frame._gearLine = nil
+    if gerr then
+      CS.Print("Gear export skipped: " .. tostring(gerr))
+    end
+  end
+  if #lines == 0 then
     return
   end
-  ensure_ui()
-  local encoded = Ex.BuildString(run)
-  edit:SetText(encoded)
+  edit:SetText(table.concat(lines, "\n"))
   edit:HighlightText()
   edit:SetFocus()
   frame:Show()
   if CrusaderStrikeDB and CrusaderStrikeDB.companion then
     CrusaderStrikeDB.companion.lastSeenExportAt = (GetServerTime and GetServerTime()) or time()
   end
-  CS.Print("Export ready for " .. (run.instance.name or run.idempotencyKey))
+  if runLabel then
+    CS.Print("Export ready for " .. runLabel)
+  else
+    CS.Print("Gear export ready")
+  end
 end

@@ -9,7 +9,8 @@ Addon for **World of Warcraft: Forever only** that logs dungeon runs for the Cru
 - Detect dungeon instances and start/close/resume runs
 - Snapshot the party
 - Record player deaths and boss kills without combat-log reads (encounter IDs + unit fallbacks)
-- Export a versioned copy-paste string via `/cs export` (MVP upload path)
+- Export versioned copy-paste strings via `/cs export` (CSRUN1 run + CSGEAR1 gear)
+- Named gear sets via `/cs gearsets` and `/cs import` (CSGEAR1 sync)
 - SavedVariables shaped so a future companion uploader can read them directly
 
 ## Layout
@@ -22,7 +23,12 @@ Addon for **World of Warcraft: Forever only** that logs dungeon runs for the Cru
 | `PvpLog.lua` | World PvP + battleground history (`/cs pvp`) |
 | `Logic/Detection.lua` | Pure boss/death detection helpers |
 | `Logic/DebugEvents.lua` | `/cs debug events` ring buffer |
-| `Export.lua` | `/cs export` copy box |
+| `Export.lua` | `/cs export` copy box (CSRUN1 + CSGEAR1, Copy gear) |
+| `GearSetsUI.lua` | `/cs gearsets` armory-style editor |
+| `Logic/GearSlots.lua` | 19 platform slot names |
+| `Logic/EquippedGear.lua` | Read-only equipped scan + item-link parse |
+| `Logic/GearEncoder.lua` | CSGEAR1 encode/decode + validation |
+| `Logic/GearSets.lua` | SavedVariables gear sets + import merge |
 | `Data/Bosses.lua` | Forever boss NPC ids + `byEncounterId` (DungeonEncounter 1.60.1.70790) |
 | `Data/Loot.lua` | Bundled Forever dungeon loot (RFC verified sample; see docs/loot-data.md) |
 | `Logic/WishList.lua` | Pure per-dungeon wish-list helpers (unit-tested) |
@@ -62,6 +68,11 @@ a /reload, a re-zone or a roster change are seeded and not counted again)
 not kills. `/cs debug events [on|off|dump]` records whether candidate non-CLEU events
 fire in-game — see [docs/forever-event-check.md](docs/forever-event-check.md).
 
+
+## Gear sets (`/cs gearsets`, CSGEAR1)
+
+Named leveling / max_level gear sets sync by copy-paste (`CSGEAR1:`). Equipped gear is read-only (export only). Open `/cs gearsets` to create and edit sets; `/cs import <CSGEAR1…>` applies a website export. Cap: 20 active sets (`list_limit_reached`). Below level 60 new sets default to leveling with an editable Up to level; at 60 only max_level sets can be created. Schema lives with Platform/Web (CSGEAR1 v1).
+
 ## Loot browser + wish lists (`/cs loot`)
 
 In-game UI to browse Forever dungeon loot and build a per-character wish list per dungeon (addon#2). Open with `/cs loot` or `/cs wishlist`. Lists are stored in `CrusaderStrikeCharDB.wishLists` (schema v3). v0.2.0 ships verified Ragefire Chasm boss rares only; other dungeons appear in the list without loot rows until IDs are confirmed — see [docs/loot-data.md](docs/loot-data.md). No CLEU; obtain marking uses `CHAT_MSG_LOOT`.
@@ -72,7 +83,7 @@ In-game UI to browse Forever dungeon loot and build a per-character wish list pe
 lua tests/run_tests.lua
 ```
 
-Requires Lua 5.1 for the test runner. No Ace/LibStub dependency in v0.2.
+Requires Lua 5.1 for the test runner. No Ace/LibStub dependency in v0.3.
 
 ## Upload path
 

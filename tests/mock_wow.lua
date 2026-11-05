@@ -102,6 +102,15 @@ _G.UnitName = function(unit)
 end
 _G.UnitClass = function() return "Paladin", "PALADIN" end
 _G.UnitLevel = function() return 25 end
+_G.GetInventoryItemLink = function(unit, slot)
+  -- Tests override _G._CS_TestEquipped = { [invSlot] = link }
+  local map = _G._CS_TestEquipped
+  if type(map) == "table" then
+    return map[slot]
+  end
+  return nil
+end
+_G.C_Timer = { After = function(sec, fn) end }
 _G.UnitExists = function(unit) return unit == "player" end
 _G.UnitIsUnit = function(a, b) return a == b end
 _G.UnitInParty = function() return true end
@@ -143,11 +152,16 @@ function M.load_addon()
     "Logic/Detection.lua",
     "Logic/DebugEvents.lua",
     "Logic/WishList.lua",
+    "Logic/GearSlots.lua",
+    "Logic/EquippedGear.lua",
+    "Logic/GearEncoder.lua",
+    "Logic/GearSets.lua",
     "Core.lua",
     "DungeonLog.lua",
     "Export.lua",
     "PvpLog.lua",
     "LootBrowser.lua",
+    "GearSetsUI.lua",
   }
   for _, rel in ipairs(files) do
     local path = base .. "/" .. rel
