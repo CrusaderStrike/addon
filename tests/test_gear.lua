@@ -1131,3 +1131,152 @@ describe("sync API/session error handling (#41)", function()
     eq(list.last_sync_error, nil)
   end)
 end)
+
+describe("platform#51 error envelopes (#45)", function()
+  local GE = CrusaderStrikeGearEncoder
+
+  it("ParseErrorEnvelope maps unauthenticated / session_expired / upstream_unavailable", function()
+    local a = GE.ParseErrorEnvelope({ error = { code = "unauthenticated", message = "no session", retryable = false } })
+    eq(a.code, "unauthenticated")
+    eq(a.retryable, false)
+    ok(a.message:find("Not signed in", 1, true) ~= nil)
+    ok(not a.message:find("Import rejected", 1, true))
+
+    local s = GE.ParseErrorEnvelope({
+      error = { code = "session_expired", message = "expired", retryable = false },
+    })
+    eq(s.code, "session_expired")
+    eq(s.retryable, false)
+    ok(s.message:find("session", 1, true) ~= nil)
+
+    local u = GE.ParseErrorEnvelope({
+      error = { code = "upstream_unavailable", message = "blizzard down", retryable = true },
+    }, { http_status = 503, headers = { ["Retry-After"] = "30" } })
+    eq(u.code, "upstream_unavailable")
+    eq(u.retryable, true)
+    eq(u.retry_after, 30)
+    ok(u.message:find("unavailable", 1, true) ~= nil)
+    ok(u.message:find("30", 1, true) ~= nil)
+  end)
+
+  it("honors retryable=false on upstream_unavailable and Retry-After from meta", function()
+    local u = GE.ParseErrorEnvelope({
+      error = { code = "upstream_unavailable", retryable = false },
+    }, { http_status = 502 })
+    eq(u.retryable, false)
+    ok(u.message:find("try again later", 1, true) ~= nil)
+
+    local r = GE.ParseErrorEnvelope({ code = "upstream_unavailable", retryable = true }, { retry_after = 15 })
+    eq(r.retry_after, 15)
+    ok(r.message:find("15", 1, true) ~= nil)
+  end)
+
+  it("infers codes from HTTP status when envelope code missing", function()
+    local a = GE.ParseErrorEnvelope({ error = { message = "missing cookie" } }, { http_status = 401 })
+    eq(a.code, "unauthenticated")
+
+    local s = GE.ParseErrorEnvelope({ error = { message = "token expired" } }, { http_status = 401 })
+    eq(s.code, "session_expired")
+
+    local u = GE.ParseErrorEnvelope({}, { http_status = 503, headers = { ["Retry-After"] = "5" } })
+    eq(u.code, "upstream_unavailable")
+    eq(u.retry_after, 5)
+  end)
+
+  it("backward-compat: string error, reason field, legacy aliases", function()
+    local a = GE.ParseErrorEnvelope("api_unavailable")
+    eq(a.code, "api_unavailable")
+    ok(a.message:find("unreachable", 1, true) ~= nil)
+
+    local b = GE.ParseErrorEnvelope({ reason = "network_error" })
+    eq(b.code, "network_error")
+
+    local c = GE.ParseErrorEnvelope({ code = "unauthorized" })
+    eq(c.code, "unauthenticated")
+
+    local d = GE.ParseErrorEnvelope({ code = "token_expired" })
+    eq(d.code, "session_expired")
+
+    -- Unknown sync code uses sync-specific fallback (not Import rejected)
+    local e = GE.SyncErrorMessage("totally_unknown_xyz")
+    ok(e:find("sync failed", 1, true) ~= nil)
+    ok(not e:find("Import rejected", 1, true))
+  end)
+
+  it("ApplyOpsResult routes platform#51 envelope through FailSync (pending kept)", function()
+    local db = { gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} } }
+    local list = CrusaderStrikeGearSets.CreateSet(db, { name = "Env", type = "max_level" }, 60)
+    CrusaderStrikeGearSets.SetSlot(db, list.local_id, "head", 12345)
+    local before_ops = CrusaderStrikeGearSets.PeekPendingOps(db, list.local_id)
+    local n = #before_ops
+    local before_ids = {}
+    for i, op in ipairs(before_ops) do before_ids[i] = op.op_id end
+    CrusaderStrikeGearSets.BeginSync(db, list.local_id)
+
+    local summary = CrusaderStrikeGearSets.ApplyOpsResult(db, list.local_id, {
+      error = { code = "unauthenticated", message = "no session", retryable = false },
+      http_status = 401,
+    })
+    eq(summary.code, "unauthenticated")
+    eq(summary.retryable, false)
+    eq(summary.pending_kept, n)
+    eq(list.syncing, false)
+    local after = CrusaderStrikeGearSets.PeekPendingOps(db, list.local_id)
+    eq(#after, n)
+    for i, op in ipairs(after) do eq(op.op_id, before_ids[i]) end
+    ok(summary.message:find("Not signed in", 1, true) ~= nil)
+    eq(list.last_sync_error.retryable, false)
+
+    CrusaderStrikeGearSets.BeginSync(db, list.local_id)
+    local s2 = CrusaderStrikeGearSets.ApplyOpsResult(db, list.local_id, {
+      error = { code = "session_expired", retryable = false },
+      status = 401,
+    })
+    eq(s2.code, "session_expired")
+    eq(#CrusaderStrikeGearSets.PeekPendingOps(db, list.local_id), n)
+
+    CrusaderStrikeGearSets.BeginSync(db, list.local_id)
+    local s3 = CrusaderStrikeGearSets.ApplyOpsResult(db, list.local_id, {
+      error = { code = "upstream_unavailable", retryable = true },
+      http_status = 503,
+      headers = { ["Retry-After"] = "45" },
+    })
+    eq(s3.code, "upstream_unavailable")
+    eq(s3.retryable, true)
+    eq(s3.retry_after, 45)
+    eq(list.last_sync_error.retry_after, 45)
+    ok(s3.message:find("45", 1, true) ~= nil)
+    eq(#CrusaderStrikeGearSets.PeekPendingOps(db, list.local_id), n)
+  end)
+
+  it("FailSync string code still works (backward compat)", function()
+    local db = { gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} } }
+    local list = CrusaderStrikeGearSets.CreateSet(db, { name = "Compat", type = "max_level" }, 60)
+    CrusaderStrikeGearSets.SetSlot(db, list.local_id, "wrist", 14148)
+    local n = #CrusaderStrikeGearSets.PeekPendingOps(db, list.local_id)
+    local summary = CrusaderStrikeGearSets.FailSync(db, list.local_id, "api_unavailable")
+    eq(summary.code, "api_unavailable")
+    eq(summary.pending_kept, n)
+    eq(summary.retryable, true)
+  end)
+
+  it("keeps validation / conflict handling unchanged alongside envelopes", function()
+    local db = { gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} } }
+    local list = CrusaderStrikeGearSets.CreateSet(db, { name = "Valid", type = "max_level" }, 60)
+    list.id = "srv-1"
+    list.version = 1
+    CrusaderStrikeGearSets.SetSlot(db, list.local_id, "head", 111)
+    local pending = CrusaderStrikeGearSets.PeekPendingOps(db, list.local_id)
+    ok(#pending >= 1)
+    local op_id = pending[1].op_id
+    local summary = CrusaderStrikeGearSets.ApplyOpsResult(db, list.local_id, {
+      version = 2,
+      applied = { op_id },
+      conflicts = {},
+      duplicates = {},
+    })
+    eq(summary.version, 2)
+    eq(#summary.errors, 0)
+    eq(#CrusaderStrikeGearSets.PeekPendingOps(db, list.local_id), 0)
+  end)
+end)

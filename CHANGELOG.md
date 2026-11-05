@@ -4,7 +4,13 @@ All notable changes to CrusaderStrike (World of Warcraft: Forever only).
 
 ## Unreleased
 
-## 0.3.3
+### Changed
+- **Consume platform#51 error envelopes (#45):** `ParseErrorEnvelope` maps `unauthenticated` / `session_expired` / `upstream_unavailable` (plus legacy codes) into FailSync / gear-sets UX; honors `retryable` and `Retry-After`. Pending ops kept; syncing cleared. Refs #26.
+
+### Fixed
+- CHANGELOG: restore `(WoW Forever)` on 0.3.2 / 0.3.3 headings; Option A cleanup note cites web#47 (PR), not web#46 (issue).
+
+## 0.3.3 (WoW Forever)
 
 - Release for #26 morning check: includes #41 gear-sets harden (#42) and #39 legacy Option A removal (#40). No schema change.
 
@@ -12,9 +18,9 @@ All notable changes to CrusaderStrike (World of Warcraft: Forever only).
 - **Gear-sets harden for #26 morning check (#41):** true CSGEAR1 E2E round-trip tests (export → web id assign → re-import, `local_id→id`); Forever `CreateDefaults` / `AllowedSetTypes` for under-60 leveling+max_level dropdown; companion sync `BeginSync` / `FailSync` / `CompleteSync` with player-visible messages for API down and session/token expiry (pending_ops kept, syncing cleared — no silent stuck state).
 
 ### Removed
-- **Legacy Option A gear ops (#39):** drop `GearOps.SetMode` / `legacy` emit path (`remove_item`+`add_item`). Slot writes are `set_slot` / `clear_slot` only (same cleanup as web#46). Forever-only `/ops` wire, `op_id` + `base_version`, ack/stale/pending_ops handling unchanged. CSGEAR1 import still accepts inbound `remove_item` in `list.removes`.
+- **Legacy Option A gear ops (#39):** drop `GearOps.SetMode` / `legacy` emit path (`remove_item`+`add_item`). Slot writes are `set_slot` / `clear_slot` only (same cleanup as web#47). Forever-only `/ops` wire, `op_id` + `base_version`, ack/stale/pending_ops handling unchanged. CSGEAR1 import still accepts inbound `remove_item` in `list.removes`.
 
-## 0.3.2
+## 0.3.2 (WoW Forever)
 
 - Includes #36: emit `set_slot`/`clear_slot` gear ops (platform#46) with legacy fallback.
 
