@@ -24,6 +24,23 @@ _G.GameTooltip = {
 }
 _G.IsShiftKeyDown = function() return false end
 _G.IsAltKeyDown = function() return false end
+-- Deterministic icons so GearTab tests can assert real textures (not QuestionMark).
+_G.GetItemIcon = function(itemId)
+  itemId = tonumber(itemId)
+  if not itemId then return nil end
+  return "Interface\\Icons\\INV_CS_Item_" .. tostring(itemId)
+end
+_G.GetItemInfoInstant = function(itemId)
+  itemId = tonumber(itemId)
+  if not itemId then return nil end
+  return "Item", nil, nil, nil, _G.GetItemIcon(itemId)
+end
+_G.C_Item = {
+  GetItemIconByID = function(itemId)
+    return _G.GetItemIcon(itemId)
+  end,
+  RequestLoadItemDataByID = function() end,
+}
 
 function _G.CreateFrame(frameType, name, parent, template)
   local f = {
@@ -66,6 +83,9 @@ function _G.CreateFrame(frameType, name, parent, template)
   function f:GetID() return self._id end
   function f:SetChecked(checked) self._checked = not not checked end
   function f:GetChecked() return self._checked end
+  function f:LockHighlight() self._lockedHighlight = true end
+  function f:UnlockHighlight() self._lockedHighlight = false end
+  function f:SetHighlightTexture() end
   function f:SetAlpha() end
   function f:Raise() end
   function f:RegisterForClicks() end
@@ -108,7 +128,9 @@ function _G.CreateFrame(frameType, name, parent, template)
       SetSize = noop,
       SetPoint = noop,
       SetAllPoints = noop,
-      SetTexture = noop,
+      SetTexture = function(self, t) self._tex = t end,
+      SetTexCoord = noop,
+      SetBlendMode = noop,
       SetAlpha = noop,
       Hide = noop,
       Show = noop,

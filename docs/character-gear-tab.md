@@ -1,60 +1,61 @@
-# Character pane gear tab (scaffold)
+# Character pane gear tab
 
-Wishlist builder on the Forever character pane (addon#2, related to the addon#25
-redesign). This is not an equip system. There is no Equip button and no sync
-with the game's Equipment Manager (that sidebar already exists on the character
-sheet).
+Gear-set builder for Forever (addon#2, related to the addon#25 redesign). The
+Crusader Strike tab is **completely separate** from the normal Character /
+PaperDoll tab: no shared slot buttons, no script swaps on Blizzard frames, and
+no Equipment Manager sync. Left-click a browser item to equip it into the
+current gear set; right-click a CS gear-set slot to unequip.
 
-The addon stays Lua-only. `Character/GearTab.lua` builds the tab with
-`CreateFrame` and appends it at runtime. An XML child would not insert into
-`CharacterFrame.ModeTabs`, which Forever creates itself.
+The addon stays Lua-only. `Character/GearTab.lua` builds a **CS-owned frame**
+with `CreateFrame`. The normal Forever Character / PaperDoll mode tab is left
+completely untouched.
 
 ## Where it sits
 
 Forever 1.60.1 uses the Camelot character frame
 (`Blizzard_UIPanels_Game/Camelot/CharacterFrame.lua` in the Forever UI source).
 Mode tabs are the vertical side tabs `CharacterFrameModeTab1`–`6`
-(Character, Reputation, Skills, PvP, Currency, Statistics). This addon adds the
-next tab.
+(Character, Reputation, Skills, PvP, Currency, Statistics). **This addon does
+not append a seventh ModeTabs entry** and does not use
+`CharacterFrameModeSideTabTemplate`.
 
-Selecting it keeps `PaperDollFrame` visible and opens
-`CrusaderStrikeCharacterGearFrame` on top of the non-slot areas:
+Instead:
 
-- **Gear Sets** and **Browser** are 42px icons on the right-pane header, in the
-  same strip as `PaperDollSidebarTabs` (Character Stats / Equipment Manager /
-  Titles). Names are tooltips. The level/class line stays on the left pane
-  (`CharacterLevelText` / `PaperDollLevelInfo`).
-- The mode tab icon is `assets/logo.tga` (the Crusader Strike shield, gold so
-  it reads on the dark side tab). Gear Sets uses `INV_Misc_Gear_01`. Browser
-  uses `INV_Misc_Bag_08`.
-- Paper-doll slots are the real buttons (`CharacterHeadSlot`,
-  `CharacterNeckSlot`, … `CharacterTabardSlot` on `PaperDollItemsFrame`).
-  Clicks are `HookScript` post-hooks, not `SetScript` replacements. Clicking a
-  slot opens the browser filtered to that gear slot (Head, and so on) via
-  `CrusaderStrikeLoot` slot names. The hook does not call equip APIs.
-- Opening the character pane is not done with `ShowUIPanel` or
-  `CharacterFrame:Show`. If the pane is already open, only the CS overlay is
-  shown. If it is closed, a secure click on `CharacterMicroButton` asks the
-  client to open it, and `hooksecurefunc` on `OnShow` / `ShowSubFrame` then
-  shows our frames. CS code does not call `RefreshDisplay`, `Expand`,
-  `SetSelectedModeTabByFrame`, or hide `PaperDollSidebarTabs`.
-- While the tab is active, paper-doll `OnClick` / drag scripts are replaced
-  with a wishlist selector and restored on leave, so equip and pickup do not
-  run. Browser icons call `GameTooltip:SetItemByID` on hover and write the
-  wishlist preview only.
-- The dungeon control is a dropdown on the browser (right pane), listing every
-  dungeon in `Data/Bosses.lua` plus verified overlay loot. Browser view
-  replaces the wishlist stats panel. Create gear set writes a real
-  `CrusaderStrikeGearSets` list.
-- Right side (`CharacterFrame.RightPaneHost`), under the icon row: live stat
-  totals. The scaffold shows classic stat names and a filled-slot count.
+- A CS-owned toggle (`CrusaderStrikeGearTabToggle`) is parented to
+  `CharacterFrame` **outside** `ModeTabs.Tabs`. It uses the Crusader Strike
+  logo (`assets/logo.tga`).
+- `/cs geartab` (or that toggle) opens `CrusaderStrikeCharacterGearFrame` only
+  when `CharacterFrame` is **already** shown by a real user open. CS never
+  calls `ShowUIPanel`, `CharacterFrame:Show`, `ShowSubFrame`,
+  `SetSelectedModeTabByFrame`, `Expand`, `RefreshDisplay`, or
+  `SecureActionButton:Click`.
+- There is **no** `hooksecurefunc` on `CharacterFrame.ShowSubFrame`, `OnShow`,
+  or `OnHide`. Hiding the CS overlay (or its parent) leaves CS mode; the
+  normal Character tab is never mutated.
+- Inside the CS frame, **Gear Sets**, **Browser**, and **Stats** are three
+  separate panes, switched by 42px header icons (`INV_Misc_Gear_01`,
+  `INV_Misc_Bag_08`, `INV_Misc_Note_01`). Names are tooltips.
+- Gear-set slots are **CS-owned buttons** (`CrusaderStrikeHeadSlot` …
+  `CrusaderStrikeTabardSlot` on `CrusaderStrikeGearDoll`). They never share
+  frames or scripts with `CharacterHeadSlot` / PaperDoll. Left-click selects
+  the slot (opens Browser filtered to that slot). Right-click unequips /
+  clears the slot on the current gear set via `CrusaderStrikeGearSets.SetSlot`.
+- Browser icons resolve through `C_Item.GetItemIconByID` / `GetItemIcon` /
+  `GetItemInfoInstant`, with `RequestLoadItemDataByID` +
+  `GET_ITEM_INFO_RECEIVED` so Forever item textures replace the question-mark
+  placeholder once the client has them. Tooltips stay on
+  `GameTooltip:SetItemByID`.
+- Left-click a browser item **equips** it into the current gear set (preview
+  slots + `SetSlot` when a set is selected). This is gear-set state, not the
+  game's EquipItem / Equipment Manager APIs.
+- The dungeon control is a **scrollable list** of dungeon names (All + every
+  indexed dungeon) — not a cycling button or a menu of `UIPanelButtonTemplate`
+  options. Name / item-ID search stays.
+- Browser results live in a **scrollable icon grid**
+  (`CrusaderStrikeGearResultScroll`). There is no hard 8-row cap; every
+  matching Forever-overlay item is reachable.
+- Stats pane shows classic stat name placeholders and a filled-slot count.
   Totals are not computed yet.
-- Center of the doll (between the slot columns, below the level line, above
-  the weapon row): the gear-set list or the browser.
-
-`/cs geartab` opens the tab. Closing the character frame or picking another
-mode tab disables the wishlist post-hooks. Blizzard's own slot scripts stay
-installed.
 
 ## Loot data
 
@@ -75,22 +76,22 @@ Structure we mirror, in our own tables:
 `Logic/GearBrowser.lua` holds an **empty baseline** of that shape.
 `Data/ForeverLootOverlay.lua` is the hand-curated overlay for extra Forever
 dungeons and changed drops. The overlay replaces a baseline dungeon with the
-same string key. The checked-in overlay is one example: Oggleflint in Ragefire
-Chasm, using item IDs already verified in `Data/Loot.lua`. Re-verify any new
-Forever item ID the same way (`docs/loot-data.md`, `docs/sources.md`). Do not
-invent IDs.
+same string key. The checked-in overlay is one example: Ragefire Chasm (all
+four bosses), using item IDs already verified in `Data/Loot.lua`. Re-verify any
+new Forever item ID the same way (`docs/loot-data.md`, `docs/sources.md`). Do
+not invent IDs.
 
-The browser filters by dungeon (`InstanceID`), by paper-doll gear slot, or
-searches by item name or item ID. Names and loot slots come from
+The browser filters by dungeon (`InstanceID`), by gear-set slot, or searches by
+item name or item ID. Names and loot slots come from
 `CrusaderStrikeLoot.LookupItem`. The shipped overlay has no Head items yet, so
 a head click shows an empty Head list until a verified head drop is added.
 
 ## Next implementation step
 
-Wire wishlist slot clicks through to real preview stats: when a browser row
-assigns an item onto the selected paper-doll slot, resolve that item's Forever
-stats and sum them in the right-hand panel. The click path already stores the
-preview (`CharacterGearTab.AssignPreviewItem`) and refreshes the panel; the
-totals function is still a placeholder. After that, extend
-`Data/ForeverLootOverlay.lua` with hand-verified dungeons — still no Atlas copy,
-and still no Equipment Manager sync.
+Wire gear-set slot fills through to real preview stats: when a browser row
+equips an item onto a CS slot, resolve that item's Forever stats and sum them
+in the Stats pane. The equip path already stores the slot
+(`CharacterGearTab.EquipItem`) and refreshes the panel; the totals function is
+still a placeholder. After that, extend `Data/ForeverLootOverlay.lua` with
+hand-verified dungeons — still no Atlas copy, and still no Equipment Manager
+sync.
