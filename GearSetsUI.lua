@@ -556,6 +556,12 @@ function UI.ApplyOpsResult(local_id, result)
         CS.Print(e.message or e.reason)
       end
     end
+  elseif type(summary.ignored_message) == "string" and summary.ignored_message ~= "" then
+    -- Soft-ignored op keys (platform ignored[]); player-facing, non-FailSync.
+    set_status(summary.ignored_message)
+    if CS.Print then
+      CS.Print(summary.ignored_message)
+    end
   else
     set_status("")
   end

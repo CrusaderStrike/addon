@@ -97,6 +97,11 @@ local REJECT_MESSAGES = {
   upstream_unavailable = "Crusader Strike or Battle.net is temporarily unavailable. Gear changes are saved locally and will retry.",
   rate_limited = "Crusader Strike rate limit reached. Gear changes are saved locally; try again soon.",
   version_mismatch = "This gear set changed on the website. Local changes are kept — sync again to reload and retry.",
+  -- Ops / companion alias for version_mismatch (platform#62 version_conflict smoke; stale_base_version).
+  version_conflict = "This gear set changed on the website. Local changes are kept — sync again to reload and retry.",
+  -- Soft-ignored unknown keys on an op (GearOpsResult.ignored[]); not a hard FailSync by itself.
+  ignored_op = "The server ignored some fields on a gear sync op. Local gear changes are kept.",
+  -- character_mismatch already listed above for import; same copy for FailSync / companion.
   internal_error = "Crusader Strike hit an unexpected error. Gear changes are saved locally and will retry.",
   -- platform#54 field-map (validation / malformed JSON) — non-retryable
   invalid_json = "Crusader Strike rejected the sync payload (invalid JSON). Gear changes are saved locally; update the companion/addon and try again.",
@@ -258,12 +263,14 @@ end
 local function default_retryable(code)
   if code == "unauthenticated" or code == "unauthorized"
       or code == "session_expired" or code == "token_expired"
-      or code == "invalid_json" or code == "validation_error" then
+      or code == "invalid_json" or code == "validation_error"
+      or code == "character_mismatch" or code == "ignored_op" then
     return false
   end
   if code == "upstream_unavailable" or code == "api_unavailable"
       or code == "api_down" or code == "network_error"
       or code == "rate_limited" or code == "version_mismatch"
+      or code == "version_conflict"
       or code == "internal_error" then
     return true
   end
@@ -298,11 +305,17 @@ local function infer_code_from_status(status, hint)
   if status == 502 or status == 503 or status == 504 then
     return "upstream_unavailable"
   end
-  -- 409 has several stable codes (version_mismatch, character_not_displayed,
-  -- list_limit_reached); only infer when the hint clearly points at version.
+  -- 409 has several stable codes (version_mismatch / version_conflict,
+  -- character_not_displayed, list_limit_reached, character_mismatch); only infer
+  -- when the hint clearly points at version or character mismatch.
   if status == 409 and type(hint) == "string" then
     local h = string.lower(hint)
-    if h:find("version", 1, true) or h:find("mismatch", 1, true) or h:find("concurrent", 1, true) then
+    if h:find("character_mismatch", 1, true)
+        or (h:find("character", 1, true) and h:find("mismatch", 1, true)) then
+      return "character_mismatch"
+    end
+    if h:find("version", 1, true) or h:find("mismatch", 1, true)
+        or h:find("concurrent", 1, true) or h:find("conflict", 1, true) then
       return "version_mismatch"
     end
   end
@@ -407,11 +420,14 @@ function GE.ParseErrorEnvelope(input, meta)
     code = "api_unavailable"
   end
 
-  -- Alias legacy auth names onto platform#51 codes (api_down/network_error stay distinct).
+  -- Alias legacy / alternate names onto stable codes (api_down/network_error stay distinct).
   if code == "unauthorized" then
     code = "unauthenticated"
   elseif code == "token_expired" then
     code = "session_expired"
+  elseif code == "version_conflict" then
+    -- platform#62 ops smoke name; HTTP 409 envelope stays version_mismatch.
+    code = "version_mismatch"
   end
 
   local now = meta.now
@@ -833,11 +849,75 @@ function GE.ValidatePayload(payload, opts)
   return true
 end
 
+-- Normalize CSGEAR1 payload for the live wire schema (explicit nulls + {} maps).
+-- Does not mutate the caller's table.
+local function wire_null(v)
+  local Null = CrusaderStrikeEncoder and CrusaderStrikeEncoder.Null
+  if v == nil and Null then
+    return Null
+  end
+  return v
+end
+
+local function wire_object(t)
+  local AsObject = CrusaderStrikeEncoder and CrusaderStrikeEncoder.AsObject
+  if type(t) ~= "table" then
+    t = {}
+  end
+  if AsObject then
+    return AsObject(t)
+  end
+  return t
+end
+
+local function wire_payload(payload)
+  if type(payload) ~= "table" then
+    return payload
+  end
+  local out = {}
+  for k, v in pairs(payload) do
+    out[k] = v
+  end
+  out.character_id = wire_null(payload.character_id)
+  -- Game export always carries equipped (possibly {}); web import strings omit it.
+  if payload.equipped ~= nil then
+    out.equipped = wire_object(payload.equipped)
+  else
+    out.equipped = nil
+  end
+  local lists = {}
+  for i, list in ipairs(payload.lists or {}) do
+    local wl = {}
+    for k, v in pairs(list) do
+      wl[k] = v
+    end
+    wl.id = wire_null(list.id)
+    wl.until_level = wire_null(list.until_level)
+    wl.role_spec = wire_null(list.role_spec)
+    local slots = {}
+    if type(list.slots) == "table" then
+      for sk, sv in pairs(list.slots) do
+        slots[sk] = wire_null(sv)
+      end
+    end
+    wl.slots = wire_object(slots)
+    if type(list.removes) ~= "table" then
+      wl.removes = {}
+    end
+    lists[i] = wl
+  end
+  out.lists = lists
+  if payload.deleted_lists == nil then
+    out.deleted_lists = {}
+  end
+  return out
+end
+
 function GE.Encode(payload)
   if not CrusaderStrikeEncoder or not CrusaderStrikeEncoder.ToJson then
     return nil, "encoder"
   end
-  local json = CrusaderStrikeEncoder.ToJson(payload)
+  local json = CrusaderStrikeEncoder.ToJson(wire_payload(payload))
   if type(json) ~= "string" then
     return nil, "bad_json"
   end
