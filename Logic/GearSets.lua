@@ -313,8 +313,7 @@ local function drop_pending_for_slot(pending, slot)
 end
 
 -- In-game slot pick/clear. Emits OpenAPI set_slot/clear_slot into list.pending_ops
--- (platform#46 primary). CSGEAR1 removes stay clear_slot-only on the primary path;
--- legacy mode also records remove_item for older fixtures.
+-- (platform#46). CSGEAR1 removes stay clear_slot-only.
 function G.SetSlot(charDB, local_id, slot, item_id)
   local list = G.FindByLocalId(charDB, local_id)
   if not list then
@@ -336,11 +335,6 @@ function G.SetSlot(charDB, local_id, slot, item_id)
     prior[1] = prev
   end
 
-  local mode = "set_slot"
-  if CrusaderStrikeGearOps and CrusaderStrikeGearOps.GetMode then
-    mode = CrusaderStrikeGearOps.GetMode()
-  end
-
   if item_id ~= nil then
     if type(item_id) ~= "number" or item_id ~= math.floor(item_id) or item_id < 1 or item_id > 2147483647 then
       return nil, "validation"
@@ -355,7 +349,6 @@ function G.SetSlot(charDB, local_id, slot, item_id)
       item_id = item_id,
       base_version = list.version,
       prior_item_ids = prior,
-      mode = mode,
       force_clear = (item_id == nil and prev ~= nil),
     })
     if not ops then
@@ -367,11 +360,8 @@ function G.SetSlot(charDB, local_id, slot, item_id)
   if item_id == nil then
     list.slots[slot] = nil
     list.removes = drop_removes_for_slot(list.removes, slot)
-    -- CSGEAR1 explicit clear (always). Option A also kept remove_item under legacy mode.
+    -- CSGEAR1 explicit clear (always).
     list.removes[#list.removes + 1] = { op = "clear_slot", slot = slot }
-    if mode == "legacy" and prev ~= nil then
-      list.removes[#list.removes + 1] = { op = "remove_item", slot = slot, item_id = prev }
-    end
   else
     list.slots[slot] = item_id
     list.removes = drop_removes_for_slot(list.removes, slot)
@@ -581,10 +571,6 @@ function G.ApplyOpsResult(charDB, local_id, result)
 
   local rebuilt = {}
   local errors = {}
-  local mode = "set_slot"
-  if CrusaderStrikeGearOps and CrusaderStrikeGearOps.GetMode then
-    mode = CrusaderStrikeGearOps.GetMode()
-  end
 
   for _, c in ipairs(conflicts) do
     if type(c) == "table" and type(c.op_id) == "string" then
@@ -613,7 +599,6 @@ function G.ApplyOpsResult(charDB, local_id, result)
             item_id = item_id,
             base_version = list.version,
             prior_item_ids = prior,
-            mode = mode,
             force_clear = force_clear,
           })
           if ops then

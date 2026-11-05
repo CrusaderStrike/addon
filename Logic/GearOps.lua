@@ -1,32 +1,13 @@
 --[[
   OpenAPI GearOp builders for armory slot pick/clear (platform#46).
-  Primary path: set_slot / clear_slot (live in prod).
-  Short Option A fallback ("legacy"): remove_item (+ add_item) for older fixtures/tests only.
+  Primary (only) path: set_slot / clear_slot (live in prod).
 
   Contract: openapi/v1.yaml GearOp — required [op_id, type, slot, base_version];
-  set_slot also needs item_id; clear_slot omits item_id; add_item needs priority 1.
+  set_slot also needs item_id; clear_slot omits item_id.
 ]]
 
 CrusaderStrikeGearOps = CrusaderStrikeGearOps or {}
 local GO = CrusaderStrikeGearOps
-
--- Default matches live platform#46. Tests may flip to "legacy" briefly.
-GO.MODE_SET_SLOT = "set_slot"
-GO.MODE_LEGACY = "legacy"
-GO._mode = GO.MODE_SET_SLOT
-
-function GO.GetMode()
-  return GO._mode or GO.MODE_SET_SLOT
-end
-
-function GO.SetMode(mode)
-  if mode == GO.MODE_LEGACY then
-    GO._mode = GO.MODE_LEGACY
-  else
-    GO._mode = GO.MODE_SET_SLOT
-  end
-  return GO._mode
-end
 
 -- UUID v4 string (Lua 5.1). Used as GearOp.op_id for server dedupe.
 function GO.NewOpId()
@@ -66,8 +47,8 @@ end
     slot = string,
     item_id = number|nil,          -- nil = clear
     base_version = number,         -- list.version last observed
-    prior_item_ids = {number,...}, -- items currently in the slot (legacy clear/replace)
-    mode = "set_slot"|"legacy"|nil,
+    prior_item_ids = {number,...}, -- items currently in the slot (clear detection)
+    force_clear = bool|nil,        -- emit clear_slot even if prior empty
     op_id = string|nil,            -- optional fixed id (tests / replay)
   }
   Returns ops array (may be empty when clear of already-empty slot).
@@ -79,7 +60,6 @@ function GO.BuildSlotOps(opts)
   if not valid_slot(slot) then
     return nil, "validation"
   end
-  local mode = opts.mode or GO.GetMode()
   local bv = base_ver(opts.base_version)
   local item_id = opts.item_id
   local prior = opts.prior_item_ids
@@ -100,22 +80,7 @@ function GO.BuildSlotOps(opts)
     ops[#ops + 1] = op
   end
 
-  if mode == GO.MODE_LEGACY then
-    for _, pid in ipairs(prior) do
-      if valid_item_id(pid) then
-        push({ type = "remove_item", item_id = pid })
-      end
-    end
-    if item_id ~= nil then
-      if not valid_item_id(item_id) then
-        return nil, "validation"
-      end
-      push({ type = "add_item", item_id = item_id, priority = 1 })
-    end
-    return ops
-  end
-
-  -- Primary: set_slot / clear_slot (platform#46)
+  -- set_slot / clear_slot only (platform#46)
   if item_id ~= nil then
     if not valid_item_id(item_id) then
       return nil, "validation"
@@ -123,7 +88,7 @@ function GO.BuildSlotOps(opts)
     push({ type = "set_slot", item_id = item_id })
     return ops
   end
-  -- clear: only emit when something was in the slot (mirror web-optb)
+  -- clear: only emit when something was in the slot (mirror web)
   if #prior > 0 or opts.force_clear then
     push({ type = "clear_slot" })
   end
