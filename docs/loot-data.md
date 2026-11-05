@@ -83,7 +83,15 @@ Pure helpers in `Logic/WishList.lua`: `Add`, `Remove`, `Reorder`, `MarkObtained`
 - Add / Remove on loot rows; wish-list view toggles obtained on click;
   Shift/Alt-click reorders
 - While inside a dungeon, the banner notes remaining wanted items
-- `CHAT_MSG_LOOT` auto-marks matching wish-list items obtained (no CLEU)
+- `CHAT_MSG_LOOT` auto-marks matching wish-list items obtained (no CLEU), but
+  only on the player's own lines: the message must match a self-loot pattern
+  built from the localized `LOOT_ITEM_SELF`, `LOOT_ITEM_SELF_MULTIPLE`,
+  `LOOT_ITEM_PUSHED_SELF`, `LOOT_ITEM_PUSHED_SELF_MULTIPLE`,
+  `LOOT_ITEM_CREATED_SELF` or `LOOT_ROLL_YOU_WON` globals, and the event's
+  looter name (arg 5), when present, must equal `UnitName("player")`. Party and
+  raid loot lines never mark an item obtained.
 
-Optional platform sync of wish lists through `/uploads` is out of scope for
-v0.2.0 (see CrusaderStrike/platform#3).
+Optional platform sync of wish lists is out of scope for v0.2.0 (see
+CrusaderStrike/platform#3). When it is scoped, wire it to the platform's
+`/gear-lists` + `/sync` endpoints (event-sourced web wish lists), not
+`/uploads`, which carries runs and PvP only.

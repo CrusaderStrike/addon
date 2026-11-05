@@ -28,7 +28,8 @@ local QUALITY_COLORS = {
 
 local SLOT_FILTERS = {
   "All", "Weapon", "Ranged", "Back", "Chest", "Wrist", "Feet",
-  "Head", "Shoulder", "Hands", "Waist", "Legs", "Finger", "Trinket", "Shield", "Other",
+  "Head", "Neck", "Shoulder", "Hands", "Waist", "Legs", "Finger", "Trinket", "Shield",
+  "Held In Off-hand", "Other",
 }
 
 local content -- scroll child
@@ -62,6 +63,68 @@ local function parse_loot_item_id(msg)
   -- |Hitem:itemId:enchant:...|h[Name]|h  (WoW item link)
   local id = msg:match("|Hitem:(%d+):")
   return id and tonumber(id) or nil
+end
+
+-- Self-loot gate. CHAT_MSG_LOOT also carries party/raid lines ("X receives
+-- loot: ..."), so only the player's own loot/create/win lines may mark a
+-- wish-list item obtained. Patterns are built from the client's localized
+-- GlobalStrings; the enUS values are used only if a global is missing.
+local SELF_LOOT_GLOBALS = {
+  { "LOOT_ITEM_SELF", "You receive loot: %s." },
+  { "LOOT_ITEM_SELF_MULTIPLE", "You receive loot: %sx%d." },
+  { "LOOT_ITEM_PUSHED_SELF", "You receive item: %s." },
+  { "LOOT_ITEM_PUSHED_SELF_MULTIPLE", "You receive item: %sx%d." },
+  { "LOOT_ITEM_CREATED_SELF", "You create: %s." },
+  { "LOOT_ROLL_YOU_WON", "You won: %s" },
+}
+
+local function format_to_pattern(fmt)
+  -- Escape Lua magic chars, then turn %s / %d (incl. positional %1$s) into captures.
+  local pat = fmt:gsub("([%^%$%(%)%.%[%]%*%+%-%?])", "%%%1")
+  pat = pat:gsub("%%%d?%$?s", "(.+)")
+  pat = pat:gsub("%%%d?%$?d", "(%%d+)")
+  return "^" .. pat .. "$"
+end
+
+local selfLootPatterns
+local function self_loot_patterns()
+  if not selfLootPatterns then
+    selfLootPatterns = {}
+    for _, g in ipairs(SELF_LOOT_GLOBALS) do
+      local fmt = _G[g[1]]
+      if type(fmt) ~= "string" or fmt == "" then
+        fmt = g[2]
+      end
+      selfLootPatterns[#selfLootPatterns + 1] = format_to_pattern(fmt)
+    end
+  end
+  return selfLootPatterns
+end
+
+local function strip_realm(name)
+  if type(name) ~= "string" then
+    return nil
+  end
+  return (name:gsub("%-.*$", ""))
+end
+
+local function is_self_loot(msg, playerName)
+  if type(msg) ~= "string" then
+    return false
+  end
+  -- When the client supplies the looter (arg 5), it must be us.
+  if type(playerName) == "string" and playerName ~= "" and UnitName then
+    local me = UnitName("player")
+    if me and strip_realm(playerName) ~= strip_realm(me) then
+      return false
+    end
+  end
+  for _, pat in ipairs(self_loot_patterns()) do
+    if msg:match(pat) then
+      return true
+    end
+  end
+  return false
 end
 
 local function quality_color(q)
@@ -153,7 +216,7 @@ local function ensure_ui()
   searchBox:SetAutoFocus(false)
   searchBox:SetScript("OnTextChanged", function(self)
     state.search = self:GetText() or ""
-    LB.Refresh()
+    LB.RefreshContent()
   end)
   searchBox:SetScript("OnEscapePressed", function(self)
     self:ClearFocus()
@@ -179,7 +242,7 @@ local function ensure_ui()
     idx = idx % #SLOT_FILTERS + 1
     state.slot = SLOT_FILTERS[idx]
     self:SetText(state.slot)
-    LB.Refresh()
+    LB.RefreshContent()
   end)
   frame._slotBtn = slotBtn
 
@@ -204,6 +267,27 @@ end
 local function clear_rows()
   for _, r in ipairs(rows) do
     r:Hide()
+  end
+end
+
+local function item_icon(itemId)
+  if C_Item and C_Item.GetItemIconByID then
+    return C_Item.GetItemIconByID(itemId)
+  end
+  if GetItemIcon then
+    return GetItemIcon(itemId)
+  end
+  return nil
+end
+
+local function set_row_icon(r, itemId)
+  local tex = itemId and item_icon(itemId)
+  if tex then
+    r.icon:SetTexture(tex)
+    if r.icon.Show then r.icon:Show() end
+  else
+    r.icon:SetTexture(nil)
+    if r.icon.Hide then r.icon:Hide() end
   end
 end
 
@@ -333,7 +417,7 @@ local function paint_loot_view()
     header._itemId = nil
     header._itemName = nil
     header.label:SetText(boss.name or ("NPC " .. tostring(boss.npcId)))
-    local c = quality_color(1)
+    set_row_icon(header, nil)
     if header.label.SetTextColor then
       header.label:SetTextColor(1, 0.82, 0)
     end
@@ -356,6 +440,7 @@ local function paint_loot_view()
         r.label:SetTextColor(qc[1], qc[2], qc[3])
       end
       r.meta:SetText(it.slot or "")
+      set_row_icon(r, it.itemId)
       r.action:Show()
       if wished then
         r.action:SetText("Remove")
@@ -424,6 +509,7 @@ local function paint_wish_view()
       end
     end
     r.meta:SetText(it and it.slot or "")
+    set_row_icon(r, row.itemId)
     r.action:Show()
     r.action:SetText("Remove")
     local itemId = row.itemId
@@ -463,6 +549,15 @@ local function paint_wish_view()
   ))
 end
 
+-- Repaint only the loot / wish pane (search + slot filter changes).
+local function refresh_content()
+  if state.view == "wish" then
+    paint_wish_view()
+  else
+    paint_loot_view()
+  end
+end
+
 function LB.Refresh()
   if not frame then
     return
@@ -474,7 +569,6 @@ function LB.Refresh()
       state.mapId = list[1].instanceMapId
     end
   end
-  local mapName
   local curMap, curName = current_instance_map()
   if curMap and state.mapId == curMap then
     local wanted = CrusaderStrikeWishList.WantedItemIds(char_db(), state.mapId)
@@ -492,10 +586,12 @@ function LB.Refresh()
     highlightBanner:SetText("Pick a dungeon. * = no loot data bundled yet.")
   end
 
-  if state.view == "wish" then
-    paint_wish_view()
-  else
-    paint_loot_view()
+  refresh_content()
+end
+
+function LB.RefreshContent()
+  if frame then
+    refresh_content()
   end
 end
 
@@ -544,7 +640,11 @@ function LB.Hide()
 end
 
 -- Loot chat → mark obtained when the item is on a wish list.
-function LB.OnLootMessage(msg)
+-- Only the player's own loot lines count (see is_self_loot).
+function LB.OnLootMessage(msg, playerName)
+  if not is_self_loot(msg, playerName) then
+    return
+  end
   local itemId = parse_loot_item_id(msg)
   if not itemId then
     return
@@ -566,13 +666,19 @@ end
 
 -- Expose for tests.
 LB._parse_loot_item_id = parse_loot_item_id
+LB._is_self_loot = is_self_loot
+LB._format_to_pattern = format_to_pattern
+function LB._reset_loot_patterns()
+  selfLootPatterns = nil
+end
 
 local eventFrame = CreateFrame("Frame", "CrusaderStrikeLootEvents")
 eventFrame:RegisterEvent("CHAT_MSG_LOOT")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-eventFrame:SetScript("OnEvent", function(_, event, arg1)
+eventFrame:SetScript("OnEvent", function(_, event, ...)
   if event == "CHAT_MSG_LOOT" then
-    LB.OnLootMessage(arg1)
+    local msg, _, _, _, playerName = ...
+    LB.OnLootMessage(msg, playerName)
   elseif event == "PLAYER_ENTERING_WORLD" then
     if frame and ((frame.IsShown and frame:IsShown()) or frame._shown) then
       LB.Refresh()

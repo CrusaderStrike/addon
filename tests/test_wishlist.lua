@@ -134,3 +134,67 @@ describe("loot chat parse", function()
     eq(LB._parse_loot_item_id("no link here"), nil)
   end)
 end)
+
+describe("loot chat self-loot gate", function()
+  local LB = CrusaderStrike and CrusaderStrike.LootBrowser
+  local link = "|cffa335ee|Hitem:14145:0:0:0:0:0:0:0:0|h[Cursed Felblade]|h|r"
+
+  local function with_marks(fn)
+    local orig = CrusaderStrikeWishList.MarkObtainedAny
+    local calls = {}
+    CrusaderStrikeWishList.MarkObtainedAny = function(_, itemId)
+      calls[#calls + 1] = itemId
+      return 0
+    end
+    local okRun, err = pcall(fn, calls)
+    CrusaderStrikeWishList.MarkObtainedAny = orig
+    if not okRun then error(err, 0) end
+  end
+
+  it("builds patterns from format strings", function()
+    local pat = LB._format_to_pattern("You receive loot: %sx%d.")
+    ok(("You receive loot: " .. link .. "x2."):match(pat), "multiple matches")
+    ok(not ("Bob receives loot: " .. link .. "x2."):match(pat), "party does not match")
+  end)
+
+  it("party loot does not mark obtained", function()
+    with_marks(function(calls)
+      LB.OnLootMessage("Partymate receives loot: " .. link .. ".", "Partymate")
+      LB.OnLootMessage("Partymate receives loot: " .. link .. ".", "")
+      LB.OnLootMessage("Partymate won: " .. link, "Partymate")
+      eq(#calls, 0)
+    end)
+  end)
+
+  it("self loot / item / create / won marks obtained", function()
+    with_marks(function(calls)
+      LB.OnLootMessage("You receive loot: " .. link .. ".", "Tester")
+      LB.OnLootMessage("You receive loot: " .. link .. "x2.", "")
+      LB.OnLootMessage("You receive item: " .. link .. ".", "Tester-CrusaderStrike")
+      LB.OnLootMessage("You create: " .. link .. ".", nil)
+      LB.OnLootMessage("You won: " .. link, "Tester")
+      eq(#calls, 5)
+      eq(calls[1], 14145)
+    end)
+  end)
+
+  it("rejects a self-shaped line when arg5 names someone else", function()
+    with_marks(function(calls)
+      LB.OnLootMessage("You receive loot: " .. link .. ".", "Partymate")
+      eq(#calls, 0)
+    end)
+  end)
+
+  it("uses localized globals instead of English", function()
+    local saved = _G.LOOT_ITEM_SELF
+    _G.LOOT_ITEM_SELF = "Ihr erhaltet Beute: %s."
+    LB._reset_loot_patterns()
+    with_marks(function(calls)
+      LB.OnLootMessage("Ihr erhaltet Beute: " .. link .. ".", "Tester")
+      LB.OnLootMessage("You receive loot: " .. link .. ".", "Tester")
+      eq(#calls, 1)
+    end)
+    _G.LOOT_ITEM_SELF = saved
+    LB._reset_loot_patterns()
+  end)
+end)
