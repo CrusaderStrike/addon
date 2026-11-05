@@ -80,7 +80,7 @@ Examples:
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
 | `schemaVersion` | int | yes | Currently `1` |
-| `gameVersion` | string | yes | `"forever"` (only supported value; World of Warcraft: Forever) |
+| `gameVersion` | string | yes | Must be `"forever"` (World of Warcraft: Forever only). The server rejects any other value with HTTP 400. |
 | `idempotencyKey` | string | yes | See above |
 | `addonRunId` | string | yes | Same as key for v1; stable alias for DB |
 | `realm` / `character` | string | yes | Logger character |
@@ -112,7 +112,7 @@ Examples:
 | full JSON | `raw_payload` |
 | `party[]` | `run_participants` rows |
 
-Reject or soft-fail payloads with `schemaVersion` > server max. Unknown `gameVersion` should still store `raw_payload`.
+Reject or soft-fail payloads with `schemaVersion` > server max. Any `gameVersion` other than `"forever"` is rejected with HTTP 400 (nothing is stored).
 
 ## Export string encoding
 
@@ -153,7 +153,7 @@ CrusaderStrikeCharDB = {
 }
 ```
 
-A companion uploader can parse these Lua tables, skip keys already ACK'd, and POST the same JSON shape (or the `CSRUN1:` string) to the platform ingest endpoint.
+A companion uploader can parse these Lua tables, skip keys already ACK'd, and POST the same JSON shape (or the `CSRUN1:` string) to the platform ingest endpoint (`POST /runs` for the JSON, `POST /runs/import` for the `CSRUN1:` string; see platform#18 OpenAPI v1).
 
 ## Run lifecycle (addon)
 
@@ -168,7 +168,7 @@ A companion uploader can parse these Lua tables, skip keys already ACK'd, and PO
 1. Should ingest **update** an existing run when a richer payload arrives with the same `addon_run_id` (bosses/deaths filled in), or keep first-write-wins?
 2. Guild association on paste: Battle.net / guild invite code / character claim — out of scope for the addon; endpoint must define auth.
 3. Max payload size and retention for `raw_payload`.
-4. Whether `gameVersion` becomes a first-class column vs JSON-only.
+4. ~~Whether `gameVersion` becomes a first-class column~~ Resolved: stored as `game_version` (const `forever`) per platform#18.
 
 ## Change log
 
