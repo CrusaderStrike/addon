@@ -108,16 +108,25 @@ local state = {
   instanceId = nil,
   dungeonPick = 0,
   gearSlot = nil,
+  pending = false,
+  dropOpen = false,
 }
 
 local hooked = {}
-local subframeHooked = false
+local hookedFrame
+local secureOpen
+local modeTab
 
 local root
 local topSetsBtn
 local topBrowserBtn
 local setsPanel
 local browserPanel
+local statsPanel
+local dropFrame
+local dungeonOptions = {}
+local nameBox
+local saveBtn
 local setsEmpty
 local browserEmpty
 local setsMore
@@ -198,37 +207,6 @@ local function set_status(msg)
   set_text(statusText, msg or "")
 end
 
-local function hide_frame(obj)
-  if obj and obj.Hide then
-    obj:Hide()
-  end
-end
-
-local function hide_equip_chrome()
-  -- Equipment Manager already lives on the character sheet. Keep its Equip
-  -- button out of this wishlist tab.
-  hide_frame(_G.PaperDollSidebarTabs)
-  local pd = _G.PaperDollFrame
-  if pd then
-    hide_frame(pd.EquipmentManagerPane)
-  end
-  if type(_G.PAPERDOLL_SIDEBARS) == "table" and type(_G.GetPaperDollSideBarFrame) == "function" then
-    for i = 1, #_G.PAPERDOLL_SIDEBARS do
-      hide_frame(_G.GetPaperDollSideBarFrame(i))
-    end
-  end
-end
-
-local function restore_chrome()
-  local cf = _G.CharacterFrame
-  local pd = _G.PaperDollFrame
-  if cf and cf.Expand and pd and pd.IsShown and pd:IsShown() then
-    pcall(cf.Expand, cf)
-  elseif type(_G.PaperDollFrame_UpdateSidebarTabs) == "function" then
-    pcall(_G.PaperDollFrame_UpdateSidebarTabs)
-  end
-end
-
 local function button_for_slot(slotName)
   for _, info in ipairs(UI.SLOT_BUTTONS) do
     if info.slot == slotName then
@@ -288,7 +266,7 @@ local function clear_preview_icons()
   end
 end
 
-local function refresh_stats()
+function refresh_stats()
   state.filled = filled_count(state.previewSlots)
   -- Placeholder totals. Item-stat math is the next step; do not invent numbers.
   for i, label in ipairs(UI.STAT_LABELS) do
@@ -328,6 +306,15 @@ local function refresh_top_tabs()
   -- Icons only. Names live on the tooltip. No bracketed text labels.
   mark_icon(topSetsBtn, state.view == "sets")
   mark_icon(topBrowserBtn, state.view == "browser")
+  if statsPanel and statsPanel.SetShown then
+    statsPanel:SetShown(state.view ~= "browser")
+  elseif statsPanel then
+    if state.view == "browser" then statsPanel:Hide() else statsPanel:Show() end
+  end
+  if state.view ~= "browser" and dropFrame and dropFrame.Hide then
+    state.dropOpen = false
+    dropFrame:Hide()
+  end
   if setsPanel and setsPanel.SetShown then
     setsPanel:SetShown(state.view == "sets")
   elseif setsPanel then
@@ -340,9 +327,17 @@ local function refresh_top_tabs()
   end
 end
 
+local refresh_browser
+
 local function show_view(view)
   state.view = view == "browser" and "browser" or "sets"
   refresh_top_tabs()
+  if refresh_browser then
+    refresh_browser()
+  end
+  if refresh_stats then
+    refresh_stats()
+  end
 end
 
 local function saved_lists()
@@ -417,20 +412,20 @@ end
 
 local function dungeon_label()
   if not state.instanceId then
-    return "Dungeon: All"
+    return "All dungeons"
   end
   if CrusaderStrikeGearBrowser and CrusaderStrikeGearBrowser.ListDungeons then
     local list = CrusaderStrikeGearBrowser.ListDungeons(game_version())
     for _, dungeon in ipairs(list) do
       if dungeon.instanceId == state.instanceId then
-        return "Dungeon: " .. (dungeon.name or tostring(dungeon.instanceId))
+        return dungeon.name or tostring(dungeon.instanceId)
       end
     end
   end
-  return "Dungeon: " .. tostring(state.instanceId)
+  return tostring(state.instanceId)
 end
 
-local function refresh_browser()
+function refresh_browser()
   if not browserPanel then
     return
   end
@@ -438,17 +433,29 @@ local function refresh_browser()
     dungeonBtn:SetText(dungeon_label())
   end
   local rows = browser_rows()
-  local shown = math.min(#rows, MAX_ROWS)
-  for i = 1, MAX_ROWS do
+  local cap = #resultButtons
+  if cap < 1 then
+    cap = 16
+  end
+  local shown = math.min(#rows, cap)
+  for i = 1, cap do
     local btn = resultButtons[i]
     local row = rows[i]
     if btn then
       if row then
         btn:Show()
         btn._itemId = row.itemId
-        local name = row.name or ("item " .. tostring(row.itemId))
-        local boss = row.bossName and (row.bossName .. ": ") or ""
-        btn:SetText(boss .. name .. "  " .. tostring(row.itemId))
+        btn._label = row.name or ("item " .. tostring(row.itemId))
+        local tex = "Interface\\Icons\\INV_Misc_QuestionMark"
+        if type(GetItemIcon) == "function" then
+          local ok, icon = pcall(GetItemIcon, row.itemId)
+          if ok and icon then
+            tex = icon
+          end
+        end
+        if btn.icon and btn.icon.SetTexture then
+          btn.icon:SetTexture(tex)
+        end
       else
         btn:Hide()
         btn._itemId = nil
@@ -489,7 +496,13 @@ function UI.GetPreview()
     filled = state.filled,
     view = state.view,
     gearSlot = state.gearSlot,
+    instanceId = state.instanceId,
+    pending = state.pending,
   }
+end
+
+function UI.DeselectSlot()
+  state.activeSlot = nil
 end
 
 function UI.OnPaperDollSlot(slotName)
@@ -504,25 +517,79 @@ function UI.OnPaperDollSlot(slotName)
   set_status("Wishlist " .. label .. " — pick an item (not equipped)")
 end
 
--- In-memory wishlist preview only. Does not write the saved set or equip.
+-- Wishlist preview only. Never calls PickupInventoryItem / EquipItem / UseInventoryItem.
 function UI.AssignPreviewItem(itemId)
-  if not state.activeSlot then
-    set_status("Select a paper doll slot first.")
-    return false, "no_slot"
-  end
   itemId = tonumber(itemId)
   if not itemId or itemId < 1 or itemId ~= math.floor(itemId) then
     return false, "bad_item"
   end
-  state.previewSlots[state.activeSlot] = itemId
+  local slot = state.activeSlot
+  if not slot or not CrusaderStrikeGearSlots or not CrusaderStrikeGearSlots.IsValidName(slot) then
+    slot = nil
+    if CrusaderStrikeGearBrowser and CrusaderStrikeGearBrowser.GearSlotForItem then
+      slot = CrusaderStrikeGearBrowser.GearSlotForItem(itemId, game_version(), state.previewSlots)
+    end
+  end
+  if not slot then
+    slot = "head"
+  end
+  state.activeSlot = slot
+  state.previewSlots[slot] = itemId
   local name
   if CrusaderStrikeGearBrowser and CrusaderStrikeGearBrowser.ItemName then
     name = CrusaderStrikeGearBrowser.ItemName(itemId, nil, game_version())
   end
+  local label = SLOT_LABEL[slot] or slot
   local extra = name and (" (" .. name .. ")") or ""
-  set_status("Preview " .. state.activeSlot .. " = " .. tostring(itemId) .. extra)
+  set_status("Preview " .. label .. " = " .. tostring(itemId) .. extra)
   refresh_stats()
   return true
+end
+
+function UI.SavePreviewAsSet(name)
+  local db = char_db()
+  if not db or not CrusaderStrikeGearSets or not CrusaderStrikeGearSets.CreateSet then
+    set_status("Gear sets unavailable.")
+    return false, "unavailable"
+  end
+  if filled_count(state.previewSlots) == 0 then
+    set_status("Add items before creating a gear set.")
+    return false, "empty"
+  end
+  if (type(name) ~= "string" or name:match("^%s*$")) and nameBox and nameBox.GetText then
+    name = nameBox:GetText()
+  end
+  if type(name) ~= "string" or name:match("^%s*$") then
+    name = "Wishlist"
+  end
+  name = (name:match("^%s*(.-)%s*$"))
+  local lvl = (UnitLevel and UnitLevel("player")) or 1
+  local defaults = CrusaderStrikeGearSets.CreateDefaults(lvl)
+  local fields = {
+    name = name,
+    type = defaults.type,
+    slots = state.previewSlots,
+  }
+  if defaults.type == "leveling" then
+    fields.until_level = defaults.until_level
+  end
+  local list, err = CrusaderStrikeGearSets.CreateSet(db, fields, lvl)
+  if not list and err == "validation" then
+    list, err = CrusaderStrikeGearSets.CreateSet(db, {
+      name = name .. " 2",
+      type = fields.type,
+      until_level = fields.until_level,
+      slots = state.previewSlots,
+    }, lvl)
+  end
+  if not list then
+    set_status("Could not create gear set.")
+    return false, err
+  end
+  state.localId = list.local_id
+  set_status("Created gear set " .. (list.name or name))
+  refresh_gear_list()
+  return true, list
 end
 
 function UI.SelectSet(localId)
@@ -549,57 +616,113 @@ function UI.SelectSet(localId)
   return true
 end
 
--- Post-hooks only. SetScript would replace Blizzard's handler and taint the
--- paper doll. HookScript leaves that handler in place; disabling the record
--- turns our callback into a no-op (WoW has no UnhookScript). The hook never
--- calls PickupInventoryItem, UseInventoryItem, or Equipment Manager APIs.
+-- While the CS tab is up, replace slot scripts so Blizzard equip/pickup never
+-- runs. HookScript is not enough: it lets the original OnClick run first.
+-- Restoring the saved scripts on leave does not call CharacterFrame refresh.
 local HOOK_SCRIPTS = { "OnClick", "OnReceiveDrag", "OnDragStart" }
 
 local function apply_hooks()
   for _, info in ipairs(UI.SLOT_BUTTONS) do
     local button = _G[info.global]
-    local rec = hooked[info.global]
-    if rec then
-      rec.enabled = true
-    elseif button and button.HookScript then
-      local slotName = info.slot
-      rec = { enabled = true }
-      hooked[info.global] = rec
-      for _, scriptName in ipairs(HOOK_SCRIPTS) do
-        local script = scriptName
-        local function handler()
-          if not rec.enabled or not state.active then
-            return
-          end
-          if script == "OnClick" then
-            UI.OnPaperDollSlot(slotName)
-          end
+    if button and button.SetScript and button.GetScript then
+      local rec = hooked[info.global]
+      if not rec then
+        rec = { saved = {}, replaced = false }
+        hooked[info.global] = rec
+        for _, script in ipairs(HOOK_SCRIPTS) do
+          rec.saved[script] = button:GetScript(script)
         end
-        pcall(button.HookScript, button, script, handler)
+      end
+      if not rec.replaced then
+        local slotName = info.slot
+        for _, scriptName in ipairs(HOOK_SCRIPTS) do
+          local script = scriptName
+          local function handler()
+            if script == "OnClick" then
+              UI.OnPaperDollSlot(slotName)
+            end
+          end
+          pcall(button.SetScript, button, script, handler)
+        end
+        rec.replaced = true
       end
     end
   end
 end
 
 local function restore_hooks()
-  for _, rec in pairs(hooked) do
-    rec.enabled = false
+  for globalName, rec in pairs(hooked) do
+    if rec.replaced then
+      local button = _G[globalName]
+      if button and button.SetScript then
+        for _, script in ipairs(HOOK_SCRIPTS) do
+          pcall(button.SetScript, button, script, rec.saved[script])
+        end
+      end
+      rec.replaced = false
+    end
   end
 end
 
-local function cycle_dungeon()
-  local list = {}
-  if CrusaderStrikeGearBrowser and CrusaderStrikeGearBrowser.ListDungeons then
-    list = CrusaderStrikeGearBrowser.ListDungeons(game_version())
-  end
-  state.dungeonPick = (state.dungeonPick or 0) + 1
-  if state.dungeonPick > #list then
-    state.dungeonPick = 0
+function UI.SelectDungeon(instanceId)
+  if instanceId == nil or instanceId == 0 or instanceId == "all" then
     state.instanceId = nil
   else
-    state.instanceId = list[state.dungeonPick].instanceId
+    state.instanceId = tonumber(instanceId)
+  end
+  state.dropOpen = false
+  if dropFrame and dropFrame.Hide then
+    dropFrame:Hide()
   end
   refresh_browser()
+end
+
+local function dungeon_choices()
+  local choices = { { name = "All dungeons", instanceId = nil } }
+  if CrusaderStrikeGearBrowser and CrusaderStrikeGearBrowser.ListDungeons then
+    for _, dungeon in ipairs(CrusaderStrikeGearBrowser.ListDungeons(game_version())) do
+      choices[#choices + 1] = {
+        name = dungeon.name or tostring(dungeon.instanceId),
+        instanceId = dungeon.instanceId,
+      }
+    end
+  end
+  return choices
+end
+
+local function refresh_dungeon_menu()
+  if not dropFrame then
+    return
+  end
+  local choices = dungeon_choices()
+  local shown = 0
+  for i, choice in ipairs(choices) do
+    local btn = dungeonOptions[i]
+    if btn then
+      btn:Show()
+      btn._instanceId = choice.instanceId
+      btn:SetText(choice.name)
+      shown = shown + 1
+    end
+  end
+  for i = shown + 1, #dungeonOptions do
+    if dungeonOptions[i] then
+      dungeonOptions[i]:Hide()
+      dungeonOptions[i]._instanceId = nil
+    end
+  end
+  if dropFrame.SetShown then
+    dropFrame:SetShown(state.dropOpen and true or false)
+  elseif state.dropOpen then
+    dropFrame:Show()
+  else
+    dropFrame:Hide()
+  end
+end
+
+local function toggle_dungeon_menu()
+  state.dropOpen = not state.dropOpen
+  refresh_dungeon_menu()
 end
 
 local function bind_icon_tooltip(btn, tooltip)
@@ -717,9 +840,6 @@ local function ensure_ui()
 
   setsPanel = CreateFrame("Frame", nil, center)
   setsPanel:SetAllPoints(center)
-  browserPanel = CreateFrame("Frame", nil, center)
-  browserPanel:SetAllPoints(center)
-  browserPanel:Hide()
 
   setsEmpty = add_text(
     setsPanel,
@@ -748,15 +868,56 @@ local function ensure_ui()
     setButtons[i] = btn
   end
 
-  dungeonBtn = CreateFrame("Button", nil, browserPanel, "UIPanelButtonTemplate")
-  dungeonBtn:SetSize(220, 22)
+  -- Browser owns the right pane (replaces the wishlist stats panel).
+  browserPanel = CreateFrame("Frame", "CrusaderStrikeGearBrowserPanel", root, "BackdropTemplate")
+  browserPanel:SetPoint("TOPLEFT", right, "TOPLEFT", 8, -52)
+  browserPanel:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", -8, 8)
+  if browserPanel.EnableMouse then
+    browserPanel:EnableMouse(true)
+  end
+  if browserPanel.SetFrameLevel then
+    browserPanel:SetFrameLevel(20)
+  end
+  apply_backdrop(browserPanel)
+  browserPanel:Hide()
+
+  dungeonBtn = CreateFrame("Button", "CrusaderStrikeGearDungeonButton", browserPanel, "UIPanelButtonTemplate")
+  dungeonBtn:SetSize(200, 22)
   dungeonBtn:SetPoint("TOPLEFT", browserPanel, "TOPLEFT", 8, -8)
-  dungeonBtn:SetText("Dungeon: All")
-  dungeonBtn:SetScript("OnClick", cycle_dungeon)
+  dungeonBtn:SetText("All dungeons")
+  dungeonBtn._isDropdown = true
+  dungeonBtn:SetScript("OnClick", toggle_dungeon_menu)
+
+  dropFrame = CreateFrame("Frame", "CrusaderStrikeGearDungeonDrop", browserPanel, "BackdropTemplate")
+  dropFrame:SetPoint("TOPLEFT", dungeonBtn, "BOTTOMLEFT", 0, -2)
+  dropFrame:SetSize(200, 180)
+  if dropFrame.SetFrameLevel then
+    dropFrame:SetFrameLevel(80)
+  end
+  apply_backdrop(dropFrame)
+  dropFrame:Hide()
+  local dropScroll = CreateFrame("ScrollFrame", "CrusaderStrikeGearDungeonScroll", dropFrame, "UIPanelScrollFrameTemplate")
+  dropScroll:SetPoint("TOPLEFT", dropFrame, "TOPLEFT", 4, -4)
+  dropScroll:SetPoint("BOTTOMRIGHT", dropFrame, "BOTTOMRIGHT", -22, 4)
+  local dropChild = CreateFrame("Frame", nil, dropScroll)
+  dropChild:SetSize(170, 18 * 40)
+  if dropScroll.SetScrollChild then
+    dropScroll:SetScrollChild(dropChild)
+  end
+  for i = 1, 40 do
+    local opt = CreateFrame("Button", nil, dropChild, "UIPanelButtonTemplate")
+    opt:SetSize(168, 16)
+    opt:SetPoint("TOPLEFT", dropChild, "TOPLEFT", 0, -((i - 1) * 18))
+    opt:Hide()
+    opt:SetScript("OnClick", function(self)
+      UI.SelectDungeon(self._instanceId)
+    end)
+    dungeonOptions[i] = opt
+  end
 
   add_text(browserPanel, "GameFontHighlightSmall", "Name or item ID", 8, -36)
   searchBox = CreateFrame("EditBox", "CrusaderStrikeGearSearch", browserPanel, "InputBoxTemplate")
-  searchBox:SetSize(120, 20)
+  searchBox:SetSize(90, 20)
   searchBox:SetPoint("TOPLEFT", browserPanel, "TOPLEFT", 110, -32)
   searchBox:SetAutoFocus(false)
   if searchBox.SetMaxLetters then
@@ -777,27 +938,72 @@ local function ensure_ui()
     "GameFontHighlightSmall",
     "No matching items. Forever overlay is a stub — see docs/character-gear-tab.md.",
     8,
-    -64
+    -58
   )
   if browserEmpty.SetWidth then
-    browserEmpty:SetWidth(220)
+    browserEmpty:SetWidth(200)
   end
-  browserMore = add_text(browserPanel, "GameFontDisableSmall", "", 8, -64 - 16 - (MAX_ROWS * 22))
+  browserMore = add_text(browserPanel, "GameFontDisableSmall", "", 8, -220)
   browserMore:Hide()
 
-  for i = 1, MAX_ROWS do
-    local btn = CreateFrame("Button", nil, browserPanel, "UIPanelButtonTemplate")
-    btn:SetSize(220, 20)
-    btn:SetPoint("TOPLEFT", browserPanel, "TOPLEFT", 8, -84 - ((i - 1) * 22))
+  for i = 1, 16 do
+    local col = (i - 1) % 4
+    local row = math.floor((i - 1) / 4)
+    local btn = CreateFrame("Button", nil, browserPanel)
+    btn:SetSize(36, 36)
+    btn:SetPoint("TOPLEFT", browserPanel, "TOPLEFT", 8 + (col * 40), -78 - (row * 40))
+    btn._isIcon = true
+    if btn.CreateTexture then
+      local icon = btn:CreateTexture(nil, "ARTWORK")
+      if icon.SetAllPoints then
+        icon:SetAllPoints()
+      end
+      btn.icon = icon
+    end
     btn:Hide()
     btn:SetScript("OnClick", function(self)
-      local itemId = self._itemId
-      if itemId then
-        UI.AssignPreviewItem(itemId)
+      if self._itemId then
+        UI.AssignPreviewItem(self._itemId)
+      end
+    end)
+    btn:SetScript("OnEnter", function(self)
+      if not self._itemId or not GameTooltip then
+        return
+      end
+      if GameTooltip.SetOwner then
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      end
+      if GameTooltip.SetItemByID then
+        GameTooltip:SetItemByID(self._itemId)
+      elseif GameTooltip.SetText then
+        GameTooltip:SetText(self._label or tostring(self._itemId))
+      end
+      if GameTooltip.Show then
+        GameTooltip:Show()
+      end
+    end)
+    btn:SetScript("OnLeave", function()
+      if GameTooltip and GameTooltip.Hide then
+        GameTooltip:Hide()
       end
     end)
     resultButtons[i] = btn
   end
+
+  nameBox = CreateFrame("EditBox", "CrusaderStrikeGearSetName", browserPanel, "InputBoxTemplate")
+  nameBox:SetSize(110, 20)
+  nameBox:SetPoint("BOTTOMLEFT", browserPanel, "BOTTOMLEFT", 12, 10)
+  nameBox:SetAutoFocus(false)
+  if nameBox.SetMaxLetters then
+    nameBox:SetMaxLetters(64)
+  end
+  saveBtn = CreateFrame("Button", "CrusaderStrikeGearSaveSet", browserPanel, "UIPanelButtonTemplate")
+  saveBtn:SetSize(110, 22)
+  saveBtn:SetPoint("BOTTOMRIGHT", browserPanel, "BOTTOMRIGHT", -8, 8)
+  saveBtn:SetText("Create gear set")
+  saveBtn:SetScript("OnClick", function()
+    UI.SavePreviewAsSet(nameBox and nameBox.GetText and nameBox:GetText() or nil)
+  end)
 
   statusText = add_text(center, "GameFontDisableSmall", "Select a paper doll slot, then pick an item. Wishlist preview only.", 8, -4)
   statusText:ClearAllPoints()
@@ -806,24 +1012,24 @@ local function ensure_ui()
     statusText:SetWidth(220)
   end
 
-  local stats = CreateFrame("Frame", nil, root, "BackdropTemplate")
+  statsPanel = CreateFrame("Frame", nil, root, "BackdropTemplate")
   -- Below the 42px icon row (top of the right pane, y=-4).
-  stats:SetPoint("TOPLEFT", right, "TOPLEFT", 8, -52)
-  stats:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", -8, 8)
-  if stats.EnableMouse then
-    stats:EnableMouse(true)
+  statsPanel:SetPoint("TOPLEFT", right, "TOPLEFT", 8, -52)
+  statsPanel:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", -8, 8)
+  if statsPanel.EnableMouse then
+    statsPanel:EnableMouse(true)
   end
-  if stats.SetFrameLevel then
-    stats:SetFrameLevel(10)
+  if statsPanel.SetFrameLevel then
+    statsPanel:SetFrameLevel(10)
   end
-  apply_backdrop(stats)
+  apply_backdrop(statsPanel)
 
-  statsHeader = add_text(stats, "GameFontNormal", "Wishlist preview", 10, -10)
-  add_text(stats, "GameFontDisableSmall", "Not equipped. Totals update when preview items are filled in.", 10, -28)
+  statsHeader = add_text(statsPanel, "GameFontNormal", "Wishlist preview", 10, -10)
+  add_text(statsPanel, "GameFontDisableSmall", "Not equipped. Totals update when preview items are filled in.", 10, -28)
   for i, label in ipairs(UI.STAT_LABELS) do
-    statLines[i] = add_text(stats, "GameFontHighlightSmall", label .. "  —", 10, -52 - ((i - 1) * 16))
+    statLines[i] = add_text(statsPanel, "GameFontHighlightSmall", label .. "  —", 10, -52 - ((i - 1) * 16))
   end
-  statsFooter = add_text(stats, "GameFontDisableSmall", "Preview slots filled: 0. Stat totals are not computed yet.", 10, -52 - (#UI.STAT_LABELS * 16) - 8)
+  statsFooter = add_text(statsPanel, "GameFontDisableSmall", "Preview slots filled: 0. Stat totals are not computed yet.", 10, -52 - (#UI.STAT_LABELS * 16) - 8)
   if statsFooter.SetWidth then
     statsFooter:SetWidth(200)
   end
@@ -831,17 +1037,37 @@ local function ensure_ui()
   show_view("sets")
 end
 
+local function mark_our_mode_tab(selected)
+  if modeTab and modeTab.SetChecked then
+    modeTab:SetChecked(selected and true or false)
+  end
+  if not selected then
+    return
+  end
+  local cf = _G.CharacterFrame
+  local tabs = cf and cf.ModeTabs and cf.ModeTabs.Tabs
+  if type(tabs) ~= "table" then
+    return
+  end
+  for _, tab in ipairs(tabs) do
+    if tab ~= modeTab and tab.SetChecked then
+      tab:SetChecked(false)
+    end
+  end
+end
+
 function UI.Leave()
   if not state.active then
     return
   end
   state.active = false
+  state.pending = false
   restore_hooks()
   clear_preview_icons()
+  mark_our_mode_tab(false)
   if root and root.IsShown and root:IsShown() then
     root:Hide()
   end
-  restore_chrome()
 end
 
 function UI.Enter()
@@ -849,54 +1075,78 @@ function UI.Enter()
   if not cf then
     return
   end
+  -- Only CS-owned frames, slot-script swap, and preview icons.
+  -- Do not Show/Hide Blizzard chrome or call CharacterFrame layout APIs.
   state.active = true
-  local pd = _G.PaperDollFrame
-  if pd and pd.Show then
-    pd:Show()
-  end
-  if cf.IsRightPaneCollapsed and cf.SetRightPaneCollapsed and cf:IsRightPaneCollapsed() then
-    pcall(cf.SetRightPaneCollapsed, cf, false)
-  end
-  hide_equip_chrome()
+  state.pending = false
   ensure_ui()
   if root then
     root:Show()
   end
   apply_hooks()
-  if cf.SetSelectedModeTabByFrame then
-    pcall(cf.SetSelectedModeTabByFrame, cf, UI.FRAME_NAME)
-  end
-  -- Do not call CharacterFrame:RefreshDisplay(). That runs TextStatusBar
-  -- updates on our call stack and taints secret number compares.
+  mark_our_mode_tab(true)
   refresh_all()
 end
 
-local function defer(fn)
-  if C_Timer and C_Timer.After then
-    C_Timer.After(0, fn)
-  else
-    fn()
-  end
-end
-
 local function hook_show_subframe(cf)
-  if subframeHooked or not cf or type(cf.ShowSubFrame) ~= "function" then
+  if not cf or cf == hookedFrame or type(hooksecurefunc) ~= "function" then
     return
   end
-  if type(hooksecurefunc) ~= "function" then
-    return
+  if type(cf.ShowSubFrame) == "function" then
+    hooksecurefunc(cf, "ShowSubFrame", function(_, frameName)
+      if frameName == "PaperDollFrame" or frameName == UI.FRAME_NAME then
+        if state.pending then
+          UI.Enter()
+        end
+        return
+      end
+      UI.Leave()
+    end)
   end
-  -- Post-hook only. Replacing ShowSubFrame runs Blizzard's refresh tainted.
-  hooksecurefunc(cf, "ShowSubFrame", function(_, frameName)
-    defer(function()
-      if frameName == UI.FRAME_NAME then
+  if type(cf.OnShow) == "function" then
+    hooksecurefunc(cf, "OnShow", function()
+      if state.pending then
         UI.Enter()
-      else
-        UI.Leave()
       end
     end)
-  end)
-  subframeHooked = true
+  end
+  if type(cf.OnHide) == "function" then
+    hooksecurefunc(cf, "OnHide", function()
+      UI.Leave()
+    end)
+  end
+  hookedFrame = cf
+end
+
+local function ensure_secure_open()
+  if secureOpen then
+    return secureOpen
+  end
+  local parent = _G.UIParent or _G.CharacterFrame
+  local ok, btn = pcall(CreateFrame, "Button", "CrusaderStrikeOpenCharacterButton", parent, "SecureActionButtonTemplate")
+  if not ok or not btn then
+    return nil
+  end
+  secureOpen = btn
+  if btn.SetAttribute then
+    btn:SetAttribute("type", "click")
+    if _G.CharacterMicroButton then
+      btn:SetAttribute("clickbutton", _G.CharacterMicroButton)
+    end
+  end
+  if btn.RegisterForClicks then
+    btn:RegisterForClicks("AnyUp")
+  end
+  if btn.SetSize then
+    btn:SetSize(1, 1)
+  end
+  if btn.EnableMouse then
+    btn:EnableMouse(false)
+  end
+  if btn.Hide then
+    btn:Hide()
+  end
+  return btn
 end
 
 local function add_mode_tab(cf)
@@ -936,17 +1186,20 @@ local function add_mode_tab(cf)
     tab:SetID(nextId)
   end
   tab.frameName = UI.FRAME_NAME
+  tab._csGearTab = true
   tab.tooltipText = "Crusader Strike"
+  modeTab = tab
   if tab.SetCustomOnMouseUpHandler then
     tab:SetCustomOnMouseUpHandler(function(_, button, upInside)
       if button == "LeftButton" and (upInside == nil or upInside) then
         UI.Show()
       end
     end)
+  else
+    tab:SetScript("OnClick", function()
+      UI.Show()
+    end)
   end
-  tab:SetScript("OnClick", function()
-    UI.Show()
-  end)
   tab:SetScript("OnEnter", function(self)
     if GameTooltip and GameTooltip.SetOwner then
       GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -983,9 +1236,6 @@ local function add_mode_tab(cf)
   end
   tabs[#tabs + 1] = tab
   state.tabAdded = true
-  if cf.UpdateTabLayout then
-    pcall(cf.UpdateTabLayout, cf)
-  end
 end
 
 function UI.Install()
@@ -1006,15 +1256,20 @@ function UI.Show()
     return
   end
   local cf = _G.CharacterFrame
-  if ShowUIPanel then
-    ShowUIPanel(cf)
-  elseif cf.Show then
-    cf:Show()
-  end
-  if cf.ShowSubFrame then
-    cf:ShowSubFrame(UI.FRAME_NAME)
-  else
+  -- Never ShowUIPanel / CharacterFrame:Show / ShowSubFrame from here.
+  -- Those refresh TextStatusBar while CrusaderStrike is still on the stack.
+  if cf.IsShown and cf:IsShown() then
     UI.Enter()
+    return
+  end
+  state.pending = true
+  local btn = ensure_secure_open()
+  local micro = _G.CharacterMicroButton
+  if btn and btn.SetAttribute and micro then
+    btn:SetAttribute("clickbutton", micro)
+  end
+  if btn and btn.Click then
+    btn:Click()
   end
 end
 

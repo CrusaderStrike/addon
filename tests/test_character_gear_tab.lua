@@ -34,12 +34,20 @@ describe("character gear tab scaffold", function()
     }
     local seen = {}
     local equipHidden = false
-    _G.ShowUIPanel = nil
+    local showCalls = 0
+    local uiPanelCalls = 0
+    _G.ShowUIPanel = function()
+      uiPanelCalls = uiPanelCalls + 1
+    end
     _G.CrusaderStrikeCharDB = {}
     _G.CharacterFrame = {
       ModeTabs = { Tabs = tabs },
       activeSubframe = "PaperDollFrame",
-      Show = function(self) self.shown = true end,
+      shown = true,
+      Show = function(self)
+        showCalls = showCalls + 1
+        self.shown = true
+      end,
       IsShown = function(self) return self.shown end,
     }
     function _G.CharacterFrame:ShowSubFrame(frameName)
@@ -77,13 +85,17 @@ describe("character gear tab scaffold", function()
     eq(tabs[2]._name, "CharacterFrameModeTab7")
     eq(tabs[2].frameName, UI.FRAME_NAME)
     eq(_G.CharacterFrameModeTab7:GetChecked(), true)
-    eq(seen[1], UI.FRAME_NAME)
+    eq(#seen, 0)
+    eq(showCalls, 0)
+    eq(uiPanelCalls, 0)
+    eq(equipHidden, false)
     eq(_G.CharacterHeadSlot, head)
     eq(_G.CrusaderStrikeHeadSlot, nil)
     ok(_G.CrusaderStrikeCharacterGearFrame:IsShown())
     ok(_G.CrusaderStrikeGearSearch ~= nil)
-    ok(equipHidden)
-    ok(_G.PaperDollFrame.shown)
+    ok(_G.CrusaderStrikeGearBrowserPanel ~= nil)
+    ok(_G.CrusaderStrikeGearDungeonButton ~= nil)
+    ok(_G.CrusaderStrikeGearDungeonButton._isDropdown)
 
     local setsIcon = _G.CrusaderStrikeGearSetsIcon
     local browserIcon = _G.CrusaderStrikeGearBrowserIcon
@@ -100,8 +112,8 @@ describe("character gear tab scaffold", function()
 
     local handler = head:GetScript("OnClick")
     handler(head, "LeftButton")
-    -- Blizzard's original click still runs (HookScript, not SetScript).
-    eq(clicked, 1)
+    -- Wishlist handler replaced the Blizzard click. Equip script did not run.
+    eq(clicked, 0)
     local preview = UI.GetPreview()
     eq(preview.activeSlot, "head")
     eq(preview.gearSlot, "head")
@@ -111,11 +123,12 @@ describe("character gear tab scaffold", function()
     eq(preview.slots.head, 272999)
     eq(preview.filled, 1)
 
-    _G.CharacterFrame:ShowSubFrame("PaperDollFrame")
+    _G.CharacterFrame:ShowSubFrame("ReputationFrame")
+    eq(seen[1], "ReputationFrame")
     eq(UI.GetPreview().active, false)
     eq(_G.CrusaderStrikeCharacterGearFrame:IsShown(), false)
     head:GetScript("OnClick")(head, "LeftButton")
-    eq(clicked, 2)
+    eq(clicked, 1)
 
     _G.CharacterFrame = prevChar
     _G.PaperDollFrame = prevPaper
@@ -146,5 +159,57 @@ describe("character gear tab scaffold", function()
     eq(saved.slots.head, 14145)
     eq(saved.slots.wrist, nil)
     _G.CrusaderStrikeCharDB = prev
+  end)
+
+  it("assigns a browser item onto its equip slot without a prior selection", function()
+    local UI = CrusaderStrike.CharacterGearTab
+    UI.DeselectSlot()
+    ok(UI.AssignPreviewItem(272998))
+    local preview = UI.GetPreview()
+    eq(preview.activeSlot, "main_hand")
+    eq(preview.slots.main_hand, 272998)
+  end)
+
+  it("saves the wishlist preview as a real gear set", function()
+    local UI = CrusaderStrike.CharacterGearTab
+    local prev = _G.CrusaderStrikeCharDB
+    _G.CrusaderStrikeCharDB = {}
+    UI.DeselectSlot()
+    ok(UI.AssignPreviewItem(272998))
+    local okSave, list = UI.SavePreviewAsSet("RFC preview")
+    ok(okSave)
+    eq(list.slots.main_hand, 272998)
+    local saved = CrusaderStrikeGearSets.FindByLocalId(CrusaderStrikeCharDB, list.local_id)
+    eq(saved.slots.main_hand, 272998)
+    _G.CrusaderStrikeCharDB = prev
+  end)
+
+  it("does not Show the character frame from a hidden pane", function()
+    local UI = CrusaderStrike.CharacterGearTab
+    local prev = _G.CharacterFrame
+    local showCalls = 0
+    local opened = 0
+    _G.CharacterFrame = {
+      ModeTabs = { Tabs = {} },
+      shown = false,
+      Show = function(self)
+        showCalls = showCalls + 1
+        self.shown = true
+      end,
+      IsShown = function(self) return self.shown end,
+      ShowSubFrame = function() end,
+      OnShow = function(self)
+        opened = opened + 1
+        self.shown = true
+      end,
+    }
+    UI.Show()
+    eq(showCalls, 0)
+    eq(UI.GetPreview().pending, true)
+    eq(UI.GetPreview().active, false)
+    _G.CharacterFrame:OnShow()
+    eq(UI.GetPreview().active, true)
+    eq(opened, 1)
+    _G.CharacterFrame = prev
   end)
 end)

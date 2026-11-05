@@ -32,8 +32,20 @@ Selecting it keeps `PaperDollFrame` visible and opens
   Clicks are `HookScript` post-hooks, not `SetScript` replacements. Clicking a
   slot opens the browser filtered to that gear slot (Head, and so on) via
   `CrusaderStrikeLoot` slot names. The hook does not call equip APIs.
-- `ShowSubFrame` is observed with `hooksecurefunc` and CS enter work runs on
-  `C_Timer.After(0)`. The addon does not call `CharacterFrame:RefreshDisplay`.
+- Opening the character pane is not done with `ShowUIPanel` or
+  `CharacterFrame:Show`. If the pane is already open, only the CS overlay is
+  shown. If it is closed, a secure click on `CharacterMicroButton` asks the
+  client to open it, and `hooksecurefunc` on `OnShow` / `ShowSubFrame` then
+  shows our frames. CS code does not call `RefreshDisplay`, `Expand`,
+  `SetSelectedModeTabByFrame`, or hide `PaperDollSidebarTabs`.
+- While the tab is active, paper-doll `OnClick` / drag scripts are replaced
+  with a wishlist selector and restored on leave, so equip and pickup do not
+  run. Browser icons call `GameTooltip:SetItemByID` on hover and write the
+  wishlist preview only.
+- The dungeon control is a dropdown on the browser (right pane), listing every
+  dungeon in `Data/Bosses.lua` plus verified overlay loot. Browser view
+  replaces the wishlist stats panel. Create gear set writes a real
+  `CrusaderStrikeGearSets` list.
 - Right side (`CharacterFrame.RightPaneHost`), under the icon row: live stat
   totals. The scaffold shows classic stat names and a filled-slot count.
   Totals are not computed yet.

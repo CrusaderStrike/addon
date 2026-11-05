@@ -74,6 +74,8 @@ function _G.CreateFrame(frameType, name, parent, template)
   function f:SetClampedToScreen() end
   function f:EnableMouseWheel() end
   function f:SetBackdropBorderColor() end
+  function f:Click() end
+  function f:SetAttribute() end
   function f:SetFrameStrata() end
   function f:SetMovable() end
   function f:EnableMouse() end

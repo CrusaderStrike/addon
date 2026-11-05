@@ -44,6 +44,26 @@ local GEAR_LOOT = {
   tabard = {},
 }
 
+-- Loot slot string -> paper-doll gear slot(s). First empty preview slot wins.
+local LOOT_TO_GEAR = {
+  Head = { "head" },
+  Neck = { "neck" },
+  Shoulder = { "shoulder" },
+  Back = { "back" },
+  Chest = { "chest" },
+  Wrist = { "wrist" },
+  Hands = { "hands" },
+  Waist = { "waist" },
+  Legs = { "legs" },
+  Feet = { "feet" },
+  Finger = { "finger1", "finger2" },
+  Trinket = { "trinket1", "trinket2" },
+  Weapon = { "main_hand" },
+  Shield = { "off_hand" },
+  ["Held In Off-hand"] = { "off_hand" },
+  Ranged = { "ranged" },
+}
+
 local function version_name(gameVersion)
   if type(gameVersion) == "string" and gameVersion ~= "" then
     return gameVersion
@@ -178,6 +198,21 @@ function GB.ItemLootSlot(itemId, gameVersion)
   return nil
 end
 
+function GB.GearSlotForItem(itemId, gameVersion, filledSlots)
+  local lootSlot = GB.ItemLootSlot(itemId, gameVersion)
+  local options = lootSlot and LOOT_TO_GEAR[lootSlot]
+  if type(options) ~= "table" or #options == 0 then
+    return nil
+  end
+  filledSlots = type(filledSlots) == "table" and filledSlots or {}
+  for _, slot in ipairs(options) do
+    if filledSlots[slot] == nil then
+      return slot
+    end
+  end
+  return options[1]
+end
+
 function GB.ItemName(itemId, hinted, gameVersion)
   if type(hinted) == "string" and hinted ~= "" then
     return hinted
@@ -233,6 +268,7 @@ local function sort_dungeons(list)
 end
 
 function GB.ListDungeons(gameVersion, sources)
+  local includeIndex = sources == nil
   sources = as_sources(gameVersion, sources)
   local difficulty = GB.FOREVER_NORMAL
   local list = {}
@@ -248,6 +284,32 @@ function GB.ListDungeons(gameVersion, sources)
       origin = entry.origin,
       verified = dungeon.verified == true,
     }
+  end
+  -- Full Forever/Classic dungeon index from Data/Bosses.lua. Loot stays empty
+  -- until a hand-verified overlay row exists. Not an AtlasLoot copy.
+  if includeIndex and CrusaderStrikeBosses and CrusaderStrikeBosses.GetTable then
+    local seen = {}
+    for _, row in ipairs(list) do
+      seen[row.instanceId] = true
+    end
+    local bosses = CrusaderStrikeBosses.GetTable(version_name(gameVersion))
+    if type(bosses) == "table" then
+      for mapId, dungeon in pairs(bosses) do
+        if type(mapId) == "number" and type(dungeon) == "table"
+            and type(dungeon.name) == "string" and not seen[mapId] then
+          list[#list + 1] = {
+            key = "map:" .. tostring(mapId),
+            name = dungeon.name,
+            instanceId = mapId,
+            mapId = mapId,
+            itemCount = 0,
+            origin = "index",
+            verified = false,
+          }
+          seen[mapId] = true
+        end
+      end
+    end
   end
   return sort_dungeons(list)
 end

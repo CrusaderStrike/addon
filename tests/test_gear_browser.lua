@@ -1,4 +1,21 @@
 describe("gear browser adapter", function()
+  it("lists every indexed Forever dungeon, not only Ragefire", function()
+    local list = CrusaderStrikeGearBrowser.ListDungeons("forever")
+    ok(#list >= 20, "dungeon count " .. tostring(#list))
+    local seen = {}
+    for _, dungeon in ipairs(list) do
+      seen[dungeon.instanceId] = dungeon.name
+    end
+    eq(seen[389], "Ragefire Chasm")
+    eq(seen[36], "The Deadmines")
+    eq(seen[3065], "The Hall of Thanes")
+    eq(seen[2959], "City of Dalaran")
+    local empty = CrusaderStrikeGearBrowser.Filter({ instanceId = 36 })
+    eq(#empty, 0)
+    local rfc = CrusaderStrikeGearBrowser.Filter({ instanceId = 389 })
+    ok(#rfc >= 12)
+  end)
+
   it("ships an empty Atlas-shaped baseline", function()
     local n = 0
     for _ in pairs(CrusaderStrikeGearBrowser.Baseline.forever or {}) do
