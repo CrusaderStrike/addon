@@ -206,3 +206,23 @@ remain in `pendingForeverEncounters` with `npcId = nil` (TODO unverified).
 - Boss-unit fallback reliability when encounter events are missing.
 - Party `UNIT_FLAGS`/`UNIT_HEALTH` death edges for `party1`–`party4` (not only player).
 
+## Loot browser item IDs (addon#2, 2026-11-04)
+
+Policy unchanged: no invented item IDs. v0.2.0 bundles **Ragefire Chasm (389)** boss rares only:
+
+| Boss | Item | Item ID | Source |
+|------|------|---------|--------|
+| Oggleflint | Trogg Scepter | 272996 | questing.wiki Forever item |
+| Oggleflint | Bone Knuckles | 272998 | questing.wiki Forever item |
+| Oggleflint | Barbaric Crossbow | 272999 | questing.wiki Forever item |
+| Taragaman | Cursed Felblade | 14145 | Ladderly Forever beta client / Classic-retained |
+| Taragaman | Crystalline Cuffs | 14148 | Ladderly Forever beta client / Classic-retained |
+| Taragaman | Subterranean Cape | 14149 | Ladderly Forever beta client / Classic-retained |
+| Jergosh | Cavedweller Bracers | 14147 | Ladderly Forever beta client / Classic-retained |
+| Jergosh | Robe of Evocation | 14150 | Ladderly Forever beta client / Classic-retained |
+| Jergosh | Chanting Blade | 14151 | Ladderly Forever beta client / Classic-retained |
+| Bazzalan | Searing Dagger | 273003 | questing.wiki Forever item |
+| Bazzalan | Satyrskin Cloak | 273005 | questing.wiki Forever item |
+| Bazzalan | Chasm Walkers | 273007 | questing.wiki Forever item |
+
+Boss↔drop mapping also matches Wowhead Forever RFC overview loot tables (names). All other Forever dungeons: TODO(unverified) in `Data/Loot.lua` / `docs/loot-data.md`.

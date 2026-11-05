@@ -2,17 +2,18 @@
   CrusaderStrike core: SavedVariables bootstrap, gameVersion (WoW Forever only), slash cmds.
   Storage is companion-uploader friendly:
     CrusaderStrikeDB (account)   — schemaVersion, settings, uploadQueue meta
-    CrusaderStrikeCharDB (char)  — gameVersion, activeRun, runs[idempotencyKey]=run, pvp{world[],battlegrounds[]}
+    CrusaderStrikeCharDB (char)  — gameVersion, activeRun, runs[idempotencyKey]=run, pvp{world[],battlegrounds[]}, wishLists
 ]]
 
 CrusaderStrike = CrusaderStrike or {}
 local CS = CrusaderStrike
 
 CS.ADDON_NAME = "CrusaderStrike"
-CS.VERSION = "0.1.1"
--- SavedVariables layout version. 2 adds CrusaderStrikeCharDB.pvp (docs/pvp-schema.md).
+CS.VERSION = "0.2.0"
+-- SavedVariables layout version. 3 adds CrusaderStrikeCharDB.wishLists (docs/loot-data.md).
+-- 2 added CrusaderStrikeCharDB.pvp (docs/pvp-schema.md).
 -- The run export payload keeps its own schemaVersion (1) in Logic/RunLifecycle.lua.
-CS.SCHEMA_VERSION = 2
+CS.SCHEMA_VERSION = 3
 
 local defaultsAccount = {
   schemaVersion = CS.SCHEMA_VERSION,
@@ -32,6 +33,7 @@ local defaultsChar = {
   activeRunKey = nil,
   runs = {}, -- [idempotencyKey] = run table
   pvp = { world = {}, battlegrounds = {}, seq = 0 }, -- schema v2, see docs/pvp-schema.md
+  wishLists = {}, -- schema v3, per-dungeon wish lists; see docs/loot-data.md
 }
 
 local function deep_copy(src)
@@ -201,7 +203,14 @@ SlashCmdList["CRUSADERSTRIKE"] = function(msg)
       CrusaderStrikeDB.settings.debug = not CrusaderStrikeDB.settings.debug
       CS.Print("debug=" .. tostring(CrusaderStrikeDB.settings.debug) .. " (use /cs debug events on for Forever event capture)")
     end
+  elseif cmd == "loot" or cmd == "wishlist" or cmd == "wl" then
+    if CS.LootBrowser and CS.LootBrowser.Show then
+      local mapHint = rest and rest:match("^(%S+)")
+      CS.LootBrowser.Show(mapHint)
+    else
+      CS.Print("loot browser unavailable")
+    end
   else
-    CS.Print("Commands: /cs export [key] | /cs status | /cs pvp | /cs debug | /cs debug events [on|off|dump]")
+    CS.Print("Commands: /cs loot | /cs wishlist | /cs export [key] | /cs status | /cs pvp | /cs debug | /cs debug events [on|off|dump]")
   end
 end

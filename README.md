@@ -24,6 +24,9 @@ Addon for **World of Warcraft: Forever only** that logs dungeon runs for the Cru
 | `Logic/DebugEvents.lua` | `/cs debug events` ring buffer |
 | `Export.lua` | `/cs export` copy box |
 | `Data/Bosses.lua` | Forever boss NPC ids + `byEncounterId` (DungeonEncounter 1.60.1.70790) |
+| `Data/Loot.lua` | Bundled Forever dungeon loot (RFC verified sample; see docs/loot-data.md) |
+| `Logic/WishList.lua` | Pure per-dungeon wish-list helpers (unit-tested) |
+| `LootBrowser.lua` | `/cs loot` browser UI + CHAT_MSG_LOOT obtain marking |
 | `docs/forever-event-check.md` | In-game Forever event checklist for Drew |
 | `Logic/*` | Pure Lua (unit-tested) |
 | `docs/run-schema.md` | Schema for platform#3 |
@@ -59,13 +62,17 @@ a /reload, a re-zone or a roster change are seeded and not counted again)
 not kills. `/cs debug events [on|off|dump]` records whether candidate non-CLEU events
 fire in-game — see [docs/forever-event-check.md](docs/forever-event-check.md).
 
+## Loot browser + wish lists (`/cs loot`)
+
+In-game UI to browse Forever dungeon loot and build a per-character wish list per dungeon (addon#2). Open with `/cs loot` or `/cs wishlist`. Lists are stored in `CrusaderStrikeCharDB.wishLists` (schema v3). v0.2.0 ships verified Ragefire Chasm boss rares only; other dungeons appear in the list without loot rows until IDs are confirmed — see [docs/loot-data.md](docs/loot-data.md). No CLEU; obtain marking uses `CHAT_MSG_LOOT`.
+
 ## Develop / test
 
 ```bash
 lua tests/run_tests.lua
 ```
 
-Requires Lua 5.1 for the test runner. No Ace/LibStub dependency in v0.1.
+Requires Lua 5.1 for the test runner. No Ace/LibStub dependency in v0.2.
 
 ## Upload path
 
