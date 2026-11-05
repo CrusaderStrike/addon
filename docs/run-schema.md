@@ -26,7 +26,7 @@
 Examples:
 
 - `CrusaderStrike|Snipy|1730000000|36`
-- `WildGrowth|Aldric|1730001111|389`
+- `Ironhollow|Aldric|1730001111|389`
 
 **Platform mapping:** set `dungeon_runs.addon_run_id` to this string (also present as `addonRunId` / `idempotencyKey` in JSON). Unique with `guild_id` as today.
 
@@ -76,6 +76,8 @@ Examples:
 ```
 
 ### Field reference
+
+A field that is missing from the payload means `null`. The platform treats an absent optional field exactly like an explicit `null`, and the addon may omit `null` fields when encoding.
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
