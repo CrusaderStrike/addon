@@ -219,7 +219,6 @@ describe("gear sets storage", function()
 
   it("set/clear slot records clear_slot and pending set_slot/clear_slot ops", function()
     local db = fresh_db()
-    CrusaderStrikeGearOps.SetMode("set_slot")
     local list = CrusaderStrikeGearSets.CreateSet(db, { name = "A", type = "max_level" }, 60)
     local _, ops_set = CrusaderStrikeGearSets.SetSlot(db, list.local_id, "head", 12345)
     eq(list.slots.head, 12345)
@@ -246,30 +245,12 @@ describe("gear sets storage", function()
       end
     end
     ok(saw_clear)
-    eq(saw_remove, false) -- Option B: no remove_item companion
+    eq(saw_remove, false) -- primary path: clear_slot only, no remove_item companion
     local pending = CrusaderStrikeGearSets.PeekPendingOps(db, list.local_id)
     eq(#pending, 1)
     eq(pending[1].type, "clear_slot") -- set replaced by later clear for same slot
   end)
 
-  it("legacy mode still records remove_item on clear (fixture fallback)", function()
-    local db = fresh_db()
-    CrusaderStrikeGearOps.SetMode("legacy")
-    local list = CrusaderStrikeGearSets.CreateSet(db, { name = "B", type = "max_level" }, 60)
-    CrusaderStrikeGearSets.SetSlot(db, list.local_id, "head", 12345)
-    local _, ops = CrusaderStrikeGearSets.SetSlot(db, list.local_id, "head", nil)
-    local saw_clear, saw_remove = false, false
-    for _, op in ipairs(list.removes) do
-      if op.op == "clear_slot" then saw_clear = true end
-      if op.op == "remove_item" and op.item_id == 12345 then saw_remove = true end
-    end
-    ok(saw_clear)
-    ok(saw_remove)
-    -- legacy clear of one prior item → one remove_item (no add)
-    eq(#ops, 1)
-    eq(ops[1].type, "remove_item")
-    CrusaderStrikeGearOps.SetMode("set_slot")
-  end)
 end)
 
 describe("gear import merge", function()
@@ -702,9 +683,8 @@ describe("web-import CSGEAR1 fixture (#29)", function()
 end)
 
 
-describe("gear ops Option B (platform#46)", function()
+describe("gear ops set_slot/clear_slot (platform#46)", function()
   it("BuildSlotOps set_slot / clear_slot shapes match OpenAPI", function()
-    CrusaderStrikeGearOps.SetMode("set_slot")
     local set_ops, err = CrusaderStrikeGearOps.BuildSlotOps({
       slot = "main_hand",
       item_id = 19019,
@@ -734,26 +714,8 @@ describe("gear ops Option B (platform#46)", function()
     ok(CrusaderStrikeGearOps.IsOpId(clear_ops[1].op_id))
   end)
 
-  it("BuildSlotOps legacy fallback emits remove_item+add_item", function()
-    local ops = CrusaderStrikeGearOps.BuildSlotOps({
-      mode = "legacy",
-      slot = "head",
-      item_id = 16846,
-      base_version = 1,
-      prior_item_ids = { 123, 456 },
-    })
-    eq(#ops, 3)
-    eq(ops[1].type, "remove_item")
-    eq(ops[1].item_id, 123)
-    eq(ops[2].type, "remove_item")
-    eq(ops[2].item_id, 456)
-    eq(ops[3].type, "add_item")
-    eq(ops[3].item_id, 16846)
-    eq(ops[3].priority, 1)
-  end)
 
   it("DrainPendingOps peeks without clearing so retries reuse op_id", function()
-    CrusaderStrikeGearOps.SetMode("set_slot")
     local db = { gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} } }
     local list = CrusaderStrikeGearSets.CreateSet(db, { name = "Drain", type = "max_level" }, 60)
     list.version = 7
@@ -774,7 +736,6 @@ describe("gear ops Option B (platform#46)", function()
   end)
 
   it("tracks list.version so next op carries refreshed base_version", function()
-    CrusaderStrikeGearOps.SetMode("set_slot")
     local db = { gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} } }
     local list = CrusaderStrikeGearSets.CreateSet(db, { name = "Ver", type = "max_level" }, 60)
     eq(list.version, 0)
@@ -799,7 +760,6 @@ describe("gear ops Option B (platform#46)", function()
   end)
 
   it("applied no-op acks without requiring a version bump", function()
-    CrusaderStrikeGearOps.SetMode("set_slot")
     local db = { gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} } }
     local list = CrusaderStrikeGearSets.CreateSet(db, { name = "Noop", type = "max_level" }, 60)
     list.version = 3
@@ -818,7 +778,6 @@ describe("gear ops Option B (platform#46)", function()
   end)
 
   it("stale_base_version refreshes version and rebuilds with a new op_id", function()
-    CrusaderStrikeGearOps.SetMode("set_slot")
     local db = { gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} } }
     local list = CrusaderStrikeGearSets.CreateSet(db, { name = "Stale", type = "max_level" }, 60)
     list.version = 2
@@ -846,7 +805,6 @@ describe("gear ops Option B (platform#46)", function()
   end)
 
   it("item_not_in_slot / list_items_limit revert slot and surface errors", function()
-    CrusaderStrikeGearOps.SetMode("set_slot")
     local db = { gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} } }
     local list = CrusaderStrikeGearSets.CreateSet(db, { name = "Hard", type = "max_level" }, 60)
     list.version = 4
@@ -881,7 +839,6 @@ describe("gear ops Option B (platform#46)", function()
   end)
 
   it("ignored[] is returned for logging and source is not sent", function()
-    CrusaderStrikeGearOps.SetMode("set_slot")
     local db = { gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} } }
     local list = CrusaderStrikeGearSets.CreateSet(db, { name = "Ign", type = "max_level" }, 60)
     CrusaderStrikeGearSets.SetSlot(db, list.local_id, "wrist", 14148)

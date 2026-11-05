@@ -4,12 +4,15 @@ All notable changes to CrusaderStrike (World of Warcraft: Forever only).
 
 ## Unreleased
 
+### Removed
+- **Legacy Option A gear ops (#39):** drop `GearOps.SetMode` / `legacy` emit path (`remove_item`+`add_item`). Slot writes are `set_slot` / `clear_slot` only (same cleanup as web#46). Forever-only `/ops` wire, `op_id` + `base_version`, ack/stale/pending_ops handling unchanged. CSGEAR1 import still accepts inbound `remove_item` in `list.removes`.
+
 ## 0.3.2
 
 - Includes #36: emit `set_slot`/`clear_slot` gear ops (platform#46) with legacy fallback.
 
 ### Added
-- **Armory slot ops (platform#46):** in-game slot pick/clear queues OpenAPI `set_slot` / `clear_slot` on `list.pending_ops` (uuid `op_id`, `base_version`) for companion `/sync`. Primary path matches live platform; short `legacy` mode (`remove_item`+`add_item`) remains for fixtures/tests via `CrusaderStrikeGearOps.SetMode`.
+- **Armory slot ops (platform#46):** in-game slot pick/clear queues OpenAPI `set_slot` / `clear_slot` on `list.pending_ops` (uuid `op_id`, `base_version`) for companion `/sync`. Primary path matches live platform; short `legacy` mode (`remove_item`+`add_item`) remains for fixtures/tests via `CrusaderStrikeGearOps.SetMode` (removed in #39).
 - **Ops response handling:** `list.version` tracks the server; `DrainPendingOps` peeks (no clear) and `AckPendingOps` / `ApplyOpsResult` drop ops only after `applied`/`conflicts`/`duplicates`; stale ops rebuild with a new `op_id`; hard rejects revert the slot. Wire ops omit `source` (avoids `ignored[]`).
 
 ## 0.3.1 (WoW Forever)
