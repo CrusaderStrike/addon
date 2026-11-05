@@ -36,8 +36,8 @@ logo button in the strip.
   shown. CS never calls `ShowUIPanel`, `CharacterFrame:Show`, `ShowSubFrame`,
   `SetSelectedModeTabByFrame`, `Expand`, `RefreshDisplay`, or
   `SecureActionButton:Click`.
-- Close and Escape leave CS and show the previous pane (`PaperDollFrame` if
-  none was recorded).
+- Escape leaves CS and shows the previous pane (`PaperDollFrame` if none was
+  recorded). The CS pane has no close button of its own.
 - Inside the pane, the left side is the CS gear-set doll. **Gear Sets**,
   **Browser**, and **Stats** are a right column (`CrusaderStrikeGearPopout`).
   42px icons (`INV_Misc_Gear_01`, `INV_Misc_Bag_08`, `INV_Misc_Note_01`)

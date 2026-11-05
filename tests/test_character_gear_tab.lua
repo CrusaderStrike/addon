@@ -130,8 +130,6 @@ describe("character gear tab scaffold", function()
     eq(drel == _G.CharacterFrame, false)
     eq(doll:GetWidth(), 338)
     eq(doll:GetHeight(), 424)
-    ok(_G.CrusaderStrikeCharacterGearClose ~= nil)
-    eq(_G.CrusaderStrikeCharacterGearClose:GetParent(), root)
 
     local toggle = _G.CrusaderStrikeGearTabToggle
     ok(toggle ~= nil)

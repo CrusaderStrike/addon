@@ -1969,14 +1969,6 @@ local function ensure_ui()
   end
   add_text(root, "GameFontNormalLarge", "Crusader Strike", 38, -14)
 
-  local closeBtn = CreateFrame("Button", "CrusaderStrikeCharacterGearClose", root, "UIPanelButtonTemplate")
-  closeBtn:SetSize(64, 22)
-  closeBtn:SetPoint("TOPRIGHT", root, "TOPRIGHT", -10, -12)
-  closeBtn:SetText("Close")
-  closeBtn:SetScript("OnClick", function()
-    UI.Leave()
-  end)
-
   build_doll(root)
   if dollFrame and dollFrame.Show then
     dollFrame:Show()
