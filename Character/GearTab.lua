@@ -46,25 +46,22 @@ UI.FRAME_NAME = "CrusaderStrikeCharacterGearFrame"
 --   Weapons BOTTOMLEFT 122,20 then +5: main hand, off hand, ranged
 --   PaperDollSidebarTabTemplate 33 x 35, 4px gap, right-aligned
 --   CharacterFrame InsetRight width 177
-UI.PAPERDOLL_WIDTH = 338
-UI.PAPERDOLL_HEIGHT = 424
-UI.SIDEBAR_WIDTH = 177
-UI.SIDEBAR_TAB_W = 33
-UI.SIDEBAR_TAB_H = 35
-UI.SIDEBAR_TAB_GAP = 4
-UI.WEAPON_ROW_X = 122
-UI.WEAPON_ROW_Y = 20
-UI.WEAPON_ROW_GAP = 5
+local Layout = CrusaderStrikeGearLayout
+UI.PAPERDOLL_WIDTH = (Layout and Layout.doll.width) or 338
+UI.PAPERDOLL_HEIGHT = (Layout and Layout.doll.height) or 424
+UI.SIDEBAR_WIDTH = (Layout and Layout.panes.side.width) or 177
+UI.SIDEBAR_TAB_W = (Layout and Layout.iconRow.tabW) or 33
+UI.SIDEBAR_TAB_H = (Layout and Layout.iconRow.tabH) or 35
+UI.SIDEBAR_TAB_GAP = (Layout and Layout.iconRow.gap) or 4
+UI.WEAPON_ROW_X = (Layout and Layout.weaponRow.x) or 122
+UI.WEAPON_ROW_Y = (Layout and Layout.weaponRow.y) or 20
+UI.WEAPON_ROW_GAP = (Layout and Layout.weaponRow.gap) or 5
 UI.POPOUT_WIDTH = UI.SIDEBAR_WIDTH
 UI.POPOUT_INSET = 4
 UI.POPOUT_SCROLLBAR = 22
 UI.POPOUT_INNER = UI.POPOUT_WIDTH - (UI.POPOUT_INSET * 2) - UI.POPOUT_SCROLLBAR
 local PAPERDOLL_WIDTH = UI.PAPERDOLL_WIDTH
 local PAPERDOLL_HEIGHT = UI.PAPERDOLL_HEIGHT
-local SLOT_LEFT_X = 21
-local SLOT_TOP_Y = -76
-local SLOT_RIGHT_X = -21
-local SLOT_STEP = 37 + 4
 
 -- CS-owned slot buttons. Names match GearSlots wire slots; globals are
 -- CrusaderStrike* so Character*Slot is never touched.
@@ -183,7 +180,10 @@ local state = {
 local csToggle
 local root
 local popout
+local iconRow
+local sideToggle
 local dollFrame
+local ranged_presentation
 local topSetsBtn
 local topBrowserBtn
 local topStatsBtn
@@ -326,11 +326,17 @@ local function paint_slot(slotName, itemId)
     return
   end
   button._itemId = itemId
+  local emptyTex = EMPTY_SLOT[slotName]
+  if slotName == "ranged" and ranged_presentation then
+    local _, classEmpty = ranged_presentation(UI.PlayerClassToken())
+    emptyTex = classEmpty or emptyTex
+  end
+  button._csEmptyTex = emptyTex
   if itemId then
     local tex = resolve_item_icon(itemId)
     set_button_icon(button, tex, QUESTION)
   else
-    set_button_icon(button, EMPTY_SLOT[slotName], QUESTION)
+    set_button_icon(button, emptyTex, QUESTION)
   end
 end
 
@@ -380,13 +386,24 @@ local function refresh_top_tabs()
   mark_icon(topSetsBtn, open and state.view == "sets")
   mark_icon(topBrowserBtn, open and state.view == "browser")
   mark_icon(topStatsBtn, open and state.view == "stats")
-  if popout then
-    if open then
-      popout:Show()
-    else
-      popout:Hide()
+  local function set_shown(frame, want)
+    if not frame then
+      return
+    end
+    if frame.SetShown then
+      frame:SetShown(want)
+    elseif want and frame.Show then
+      frame:Show()
+    elseif frame.Hide then
+      frame:Hide()
     end
   end
+  -- The side pane includes its icon buttons. The doll-edge toggle stays up.
+  set_shown(popout, open)
+  set_shown(iconRow, open)
+  set_shown(topSetsBtn, open)
+  set_shown(topBrowserBtn, open)
+  set_shown(topStatsBtn, open)
   local function show_panel(panel, want)
     if not panel then
       return
@@ -404,6 +421,13 @@ local function refresh_top_tabs()
   show_panel(setsPanel, open and state.view == "sets")
   show_panel(browserPanel, open and state.view == "browser")
   show_panel(statsPanel, open and state.view == "stats")
+end
+
+-- Shows or hides the whole side pane, including its three icon buttons.
+-- Opening restores whichever panel was selected last.
+function UI.ToggleSidePane()
+  state.popout = not state.popout
+  refresh_top_tabs()
 end
 
 local refresh_browser
@@ -1690,19 +1714,11 @@ local function place_slot(info, point, relPoint, x, y)
   return btn
 end
 
-local function ranged_presentation(classToken)
+ranged_presentation = function(classToken)
   classToken = classToken or UI.PlayerClassToken()
-  if classToken == "DRUID" then
-    return "Relic", EMPTY_SLOT.relic, false
-  end
-  if classToken == "SHAMAN" then
-    return "Totem", EMPTY_SLOT.relic, false
-  end
-  if classToken == "PALADIN" then
-    return "Libram", EMPTY_SLOT.relic, false
-  end
-  if classToken == "PRIEST" or classToken == "MAGE" or classToken == "WARLOCK" then
-    return "Wand", EMPTY_SLOT.ranged, false
+  local row = Layout and Layout.RangedFor and Layout.RangedFor(classToken)
+  if row then
+    return row.label, row.empty, row.ammo
   end
   return "Ranged", EMPTY_SLOT.ranged, true
 end
@@ -1712,6 +1728,7 @@ local function apply_class_slots()
   local rangedBtn = slotButtons.ranged
   if rangedBtn then
     rangedBtn._csLabel = label
+    rangedBtn._csEmptyTex = empty
     if not rangedBtn._itemId then
       set_button_icon(rangedBtn, empty, QUESTION)
     end
@@ -1748,8 +1765,10 @@ local function build_doll(parent)
   if dollFrame.ClearAllPoints then
     dollFrame:ClearAllPoints()
   end
-  -- Same center as PaperDoll inside the CS tab content frame. No sidebar shift.
-  dollFrame:SetPoint("CENTER", parent, "CENTER", 0, 0)
+  local dollAnchor = (Layout and Layout.doll and Layout.doll.anchor) or {
+    point = "CENTER", relPoint = "CENTER", x = 0, y = 0,
+  }
+  dollFrame:SetPoint(dollAnchor.point, parent, dollAnchor.relPoint or "CENTER", dollAnchor.x or 0, dollAnchor.y or 0)
   dollFrame:SetSize(PAPERDOLL_WIDTH, PAPERDOLL_HEIGHT)
   if dollFrame.EnableMouse then
     dollFrame:EnableMouse(true)
@@ -1763,22 +1782,20 @@ local function build_doll(parent)
   for _, info in ipairs(UI.SLOT_BUTTONS) do
     bySlot[info.slot] = info
   end
-  local leftCol = { "head", "neck", "shoulder", "back", "chest", "shirt", "tabard", "wrist" }
-  local rightCol = { "hands", "waist", "legs", "feet", "finger1", "finger2", "trinket1", "trinket2" }
-  for i, slot in ipairs(leftCol) do
-    place_slot(bySlot[slot], "TOPLEFT", "TOPLEFT", SLOT_LEFT_X, SLOT_TOP_Y - ((i - 1) * SLOT_STEP))
+  local columns = (Layout and Layout.columns) or {}
+  for _, col in ipairs(columns) do
+    for i, slot in ipairs(col.slots) do
+      local y = col.y - ((i - 1) * col.step)
+      place_slot(bySlot[slot], col.point, col.relPoint, col.x, y)
+    end
   end
-  for i, slot in ipairs(rightCol) do
-    place_slot(bySlot[slot], "TOPRIGHT", "TOPRIGHT", SLOT_RIGHT_X, SLOT_TOP_Y - ((i - 1) * SLOT_STEP))
+  local row = Layout and Layout.weaponRow
+  if row then
+    for i, slot in ipairs(row.slots) do
+      local x = row.x + ((i - 1) * ((Layout.slotSize or SLOT_SIZE) + row.gap))
+      place_slot(bySlot[slot], row.point, row.relPoint, x, row.y)
+    end
   end
-  -- PaperDoll weapon row: main hand, off hand, ranged, then ammo beside ranged.
-  local weapons = { "main_hand", "off_hand", "ranged" }
-  for i, slot in ipairs(weapons) do
-    local x = UI.WEAPON_ROW_X + ((i - 1) * (SLOT_SIZE + UI.WEAPON_ROW_GAP))
-    place_slot(bySlot[slot], "BOTTOMLEFT", "BOTTOMLEFT", x, UI.WEAPON_ROW_Y)
-  end
-  local ammoX = UI.WEAPON_ROW_X + (3 * (SLOT_SIZE + UI.WEAPON_ROW_GAP))
-  place_slot(bySlot.ammo, "BOTTOMLEFT", "BOTTOMLEFT", ammoX, UI.WEAPON_ROW_Y)
   apply_class_slots()
 
   statusText = add_text(dollFrame, "GameFontDisableSmall", "", 8, -8)
@@ -1879,11 +1896,13 @@ local function ensure_toggle(cf)
   end
 
   local function on_toggle()
+    -- Select-only. A second click while CS is already showing does nothing.
+    -- Another CharacterFrame tab still leaves CS via the ShowSubFrame hook.
     if state.active then
-      UI.Leave()
-    else
-      UI.Enter()
+      refresh_toggle_checked()
+      return
     end
+    UI.Enter()
   end
   if csToggle.SetCustomOnMouseUpHandler then
     csToggle:SetCustomOnMouseUpHandler(function(_, button, upInside)
@@ -1891,9 +1910,8 @@ local function ensure_toggle(cf)
         on_toggle()
       end
     end)
-  else
-    csToggle:SetScript("OnClick", on_toggle)
   end
+  csToggle:SetScript("OnClick", on_toggle)
   bind_icon_tooltip(csToggle, "Crusader Strike")
   refresh_toggle_checked()
   if csToggle.Show then
@@ -2058,13 +2076,50 @@ local function ensure_ui()
     dollFrame:Show()
   end
 
+  local function layout_rel(name)
+    if name == "doll" then
+      return dollFrame
+    end
+    if name == "main" or name == "root" then
+      return root
+    end
+    if name == "iconRow" then
+      return iconRow
+    end
+    return popout
+  end
+
+  local function apply_layout_points(frame, points)
+    if frame.ClearAllPoints then
+      frame:ClearAllPoints()
+    end
+    for _, spec in ipairs(points or {}) do
+      frame:SetPoint(spec.point, layout_rel(spec.rel), spec.relPoint, spec.x or 0, spec.y or 0)
+    end
+  end
+
+  -- Edge control on the doll. Hides and shows the entire side pane.
+  local toggleSpec = (Layout and Layout.sideToggle) or {}
+  local toggleAnchor = toggleSpec.anchor or { point = "TOPRIGHT", relPoint = "TOPRIGHT", x = -4, y = -4 }
+  sideToggle = CreateFrame("Button", toggleSpec.frame or "CrusaderStrikeGearSideToggle", dollFrame, "UIPanelButtonTemplate")
+  sideToggle._csSideToggle = true
+  sideToggle:SetSize(toggleSpec.width or 22, toggleSpec.height or 22)
+  sideToggle:SetPoint(toggleAnchor.point, dollFrame, toggleAnchor.relPoint, toggleAnchor.x or 0, toggleAnchor.y or 0)
+  sideToggle:SetText(">")
+  sideToggle:SetScript("OnClick", function()
+    UI.ToggleSidePane()
+  end)
+  bind_icon_tooltip(sideToggle, "Show or hide the gear side pane")
+  if sideToggle.Show then
+    sideToggle:Show()
+  end
+
   -- CharacterFrame InsetRight: 177 wide, full height of the PaperDoll pane.
   popout = CreateFrame("Frame", "CrusaderStrikeGearPopout", root, "BackdropTemplate")
   popout._csInFrameColumn = true
   popout._csSidebar = true
   popout:SetWidth(UI.SIDEBAR_WIDTH)
-  popout:SetPoint("TOPLEFT", dollFrame, "TOPRIGHT", 0, 0)
-  popout:SetPoint("BOTTOMLEFT", dollFrame, "BOTTOMRIGHT", 0, 0)
+  apply_layout_points(popout, Layout and Layout.panes.side.anchor)
   if popout.SetClipsChildren then
     popout:SetClipsChildren(true)
   end
@@ -2078,10 +2133,9 @@ local function ensure_ui()
   -- Mode buttons exist only on the right pane, at its top, above the
   -- sets / browser / stats body. They are not placed over the slot grid.
   -- The row spans the pop-out so the content frame can hang off its bottom.
-  local iconRow = CreateFrame("Frame", "CrusaderStrikeGearIconRow", popout)
+  iconRow = CreateFrame("Frame", "CrusaderStrikeGearIconRow", popout)
   iconRow:SetHeight(UI.SIDEBAR_TAB_H)
-  iconRow:SetPoint("TOPLEFT", popout, "TOPLEFT", 0, -UI.SIDEBAR_TAB_GAP)
-  iconRow:SetPoint("TOPRIGHT", popout, "TOPRIGHT", 0, -UI.SIDEBAR_TAB_GAP)
+  apply_layout_points(iconRow, Layout and Layout.iconRow.points)
   if iconRow.EnableMouse then
     iconRow:EnableMouse(true)
   end
@@ -2115,7 +2169,8 @@ local function ensure_ui()
   size_sidebar_tab(topStatsBtn)
   size_sidebar_tab(topBrowserBtn)
   size_sidebar_tab(topSetsBtn)
-  topStatsBtn:SetPoint("RIGHT", iconRow, "RIGHT", -6, 0)
+  local rightInset = (Layout and Layout.iconRow and Layout.iconRow.rightInset) or 6
+  topStatsBtn:SetPoint("RIGHT", iconRow, "RIGHT", -rightInset, 0)
   topBrowserBtn:SetPoint("RIGHT", topStatsBtn, "LEFT", -UI.SIDEBAR_TAB_GAP, 0)
   topSetsBtn:SetPoint("RIGHT", topBrowserBtn, "LEFT", -UI.SIDEBAR_TAB_GAP, 0)
 
@@ -2128,9 +2183,9 @@ local function ensure_ui()
     if panel.ClearAllPoints then
       panel:ClearAllPoints()
     end
-    panel:SetPoint("TOPLEFT", iconRow, "BOTTOMLEFT", 0, -UI.SIDEBAR_TAB_GAP)
-    panel:SetPoint("BOTTOMRIGHT", popout, "BOTTOMRIGHT", 0, 0)
+    apply_layout_points(panel, Layout and Layout.panels.content.points)
     panel._csSidebarPanel = true
+    panel._csAlign = (Layout and Layout.panels.browser and Layout.panels.browser.align) or "center"
   end
 
   -- Pane 1: Gear Sets list. Rows are direct children of the pane so they

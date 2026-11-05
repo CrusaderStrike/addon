@@ -35,4 +35,5 @@ Export.lua
 PvpLog.lua
 LootBrowser.lua
 GearSetsUI.lua
+Character\GearLayout.lua
 Character\GearTab.lua

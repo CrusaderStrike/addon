@@ -551,6 +551,20 @@ describe("character gear tab scaffold", function()
     eq(stats:IsShown(), false)
     ok(root:IsShown())
     ok(_G.CrusaderStrikeGearDoll:IsShown())
+    -- Closing the side pane hides its icon buttons too. The edge toggle stays.
+    eq(_G.CrusaderStrikeGearSetsIcon:IsShown(), false)
+    eq(_G.CrusaderStrikeGearBrowserIcon:IsShown(), false)
+    eq(_G.CrusaderStrikeGearStatsIcon:IsShown(), false)
+    local sideToggle = _G.CrusaderStrikeGearSideToggle
+    ok(sideToggle ~= nil)
+    ok(sideToggle:IsShown())
+    eq(sideToggle:GetParent(), _G.CrusaderStrikeGearDoll)
+    eq(sideToggle._csSideToggle, true)
+    sideToggle:GetScript("OnClick")(sideToggle)
+    eq(UI.GetPreview().popout, true)
+    eq(UI.GetPreview().view, "browser")
+    ok(pop:IsShown())
+    ok(browser:IsShown())
     ok(_G.CrusaderStrikeGearSetsIcon:IsShown())
     ok(_G.CrusaderStrikeGearBrowserIcon:IsShown())
     ok(_G.CrusaderStrikeGearStatsIcon:IsShown())
@@ -880,9 +894,11 @@ describe("character gear tab scaffold", function()
     eq(select(1, try_slot("PALADIN", "ranged", 920009)), false)
     eq(select(1, try_slot("MAGE", "ranged", 920007)), false)
     _G.UnitClass = function() return "Hunter", "HUNTER" end
+    UI.GetPreview().slots.ranged = nil
     UI.Show()
     ok(_G.CrusaderStrikeAmmoSlot:IsShown())
     eq(_G.CrusaderStrikeRangedSlot._csLabel, "Ranged")
+    eq(_G.CrusaderStrikeRangedSlot._csEmptyTex, "Interface\\PaperDoll\\UI-PaperDoll-Slot-Ranged")
     ok(try_slot("HUNTER", "ammo", 920012))
     eq(UI.GetPreview().slots.ammo, 920012)
     local mageAmmo, mageWhy = UI.CheckEquip(920012, "ammo", {}, "MAGE")
@@ -973,6 +989,89 @@ describe("character gear tab scaffold", function()
 
     _G.CharacterFrame = prevChar
     _G.PaperDollFrame = prevPaper
+  end)
+
+  it("keeps the CS tab selected when the logo is clicked again", function()
+    local UI = CrusaderStrike.CharacterGearTab
+    local prevChar = _G.CharacterFrame
+    local prevPaper = _G.PaperDollFrame
+    local paper = {
+      shown = true,
+      Show = function(self) self.shown = true end,
+      Hide = function(self) self.shown = false end,
+      IsShown = function(self) return self.shown end,
+    }
+    _G.PaperDollFrame = paper
+    _G.CharacterFrame = {
+      ModeTabs = { Tabs = {} },
+      activeSubframe = "PaperDollFrame",
+      shown = true,
+      IsShown = function(self) return self.shown end,
+      ShowSubFrame = function(self, frameName)
+        self.activeSubframe = frameName
+        if self._csShowSubFrameObserved then
+          -- hooksecurefunc wrapper calls the original then the hook.
+        end
+      end,
+    }
+    UI.Leave()
+    eq(UI.GetPreview().active, false)
+    local toggle = _G.CrusaderStrikeGearTabToggle
+    toggle:GetScript("OnClick")(toggle)
+    local root = _G.CrusaderStrikeCharacterGearFrame
+    eq(UI.GetPreview().active, true)
+    ok(root:IsShown())
+    toggle:GetScript("OnClick")(toggle)
+    eq(UI.GetPreview().active, true)
+    ok(root:IsShown())
+    eq(paper.shown, false)
+    _G.CharacterFrame:ShowSubFrame("StatisticsFrame")
+    eq(root:IsShown(), false)
+    eq(UI.GetPreview().active, false)
+    _G.CharacterFrame = prevChar
+    _G.PaperDollFrame = prevPaper
+  end)
+
+  it("uses a class-specific empty icon on the ranged slot", function()
+    local UI = CrusaderStrike.CharacterGearTab
+    local prevClass = _G.UnitClass
+    local prevChar = _G.CharacterFrame
+    _G.CharacterFrame = {
+      ModeTabs = { Tabs = {} },
+      shown = true,
+      IsShown = function(self) return self.shown end,
+    }
+    local L = CrusaderStrikeGearLayout
+    eq(L.panes.main.owns[1], "doll")
+    eq(L.panes.side.frame, "CrusaderStrikeGearPopout")
+    eq(L.panels.browser.align, "center")
+    eq(L.doll.anchor.point, "CENTER")
+    eq(L.doll.anchor.x, 0)
+    eq(L.doll.anchor.y, 0)
+    UI.Show()
+    local ranged = _G.CrusaderStrikeRangedSlot
+    local ammo = _G.CrusaderStrikeAmmoSlot
+    for _, token in ipairs({
+      "DRUID", "SHAMAN", "PALADIN",
+      "HUNTER", "WARRIOR", "ROGUE",
+      "PRIEST", "MAGE", "WARLOCK",
+    }) do
+      local spec = L.rangedByClass[token]
+      _G.UnitClass = function() return token, token end
+      UI.GetPreview().slots.ranged = nil
+      UI.Show()
+      eq(ranged._csLabel, spec.label)
+      eq(ranged._csEmptyTex, spec.empty)
+      eq(ranged._iconTex, spec.empty)
+      eq(ammo:IsShown(), spec.ammo == true)
+    end
+    eq(L.rangedByClass.DRUID.empty, "Interface\\PaperDoll\\UI-PaperDoll-Slot-Relic")
+    eq(L.rangedByClass.HUNTER.empty, "Interface\\PaperDoll\\UI-PaperDoll-Slot-Ranged")
+    eq(L.rangedByClass.MAGE.empty, "Interface\\Icons\\INV_Wand_01")
+    eq(L.rangedByClass.SHAMAN.empty, "Interface\\Icons\\Spell_Nature_SlowingTotem")
+    eq(L.rangedByClass.PALADIN.empty, "Interface\\Icons\\INV_Misc_Book_11")
+    _G.UnitClass = prevClass
+    _G.CharacterFrame = prevChar
   end)
 
   it("keeps the pop-out open the first time Gear Sets is selected", function()

@@ -38,11 +38,19 @@ logo button in the strip.
   `SecureActionButton:Click`.
 - Escape leaves CS and shows the previous pane (`PaperDollFrame` if none was
   recorded). The CS pane has no close button of its own.
-- Inside the pane, the left side is the CS gear-set doll. **Gear Sets**,
-  **Browser**, and **Stats** are a right column (`CrusaderStrikeGearPopout`).
-  42px icons (`INV_Misc_Gear_01`, `INV_Misc_Bag_08`, `INV_Misc_Note_01`)
-  toggle it. Names are tooltips. Clicking the open pane's icon closes the
-  column so nothing draws on the doll.
+- The logo tab is **select-only**. Clicking it opens the CS page. Clicking it
+  again while CS is already selected does nothing. Switching to another
+  CharacterFrame mode tab still hides CS.
+- Layout numbers and ownership live in `Character/GearLayout.lua`. The paper
+  doll (model area and every gear slot) is centered in the CS tab content
+  frame. The side pane (`CrusaderStrikeGearPopout`) holds the icon row plus
+  Gear Sets, Browser, and Stats. The Browser fills that pane under the icon
+  row, with equal left and right edges, so it is centered in the side pane.
+- **Gear Sets**, **Browser**, and **Stats** are inside the side pane. Their
+  icons switch panels. The control that shows or hides the **whole** side
+  pane, including those three icons, is `CrusaderStrikeGearSideToggle`. It
+  sits on the paper doll's top-right corner (the main pane), not inside the
+  side pane. Opening it again shows the panel that was selected last.
 - Pop-out content is anchored to the pop-out (dungeon list stretches to the
   browser panel, search matches the list width, the result grid fills the
   pane's inner width). It is not positioned with a fixed offset inside the
@@ -70,6 +78,13 @@ logo button in the strip.
   matching Forever-overlay item is reachable.
 - Stats pane shows classic stat name placeholders and a filled-slot count.
   Totals are not computed yet.
+- The wire slot `ranged` changes label and empty art by class. Hunter,
+  warrior, and rogue use the bow slot `UI-PaperDoll-Slot-Ranged` plus Ammo.
+  Druid uses `UI-PaperDoll-Slot-Relic`. Shaman uses
+  `Spell_Nature_SlowingTotem` (no paperdoll totem slot texture). Paladin uses
+  `INV_Misc_Book_11` (no paperdoll libram slot texture). Priest, mage, and
+  warlock use `INV_Wand_01` instead of the bow slot. See
+  `Character/GearLayout.lua`.
 
 ## Loot data
 
