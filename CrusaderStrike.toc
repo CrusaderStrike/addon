@@ -1,13 +1,13 @@
 ## Interface: 16001
 ## Title: CrusaderStrike
-## Notes: Dungeon-run logging and loot wish lists for Crusader Strike (World of Warcraft: Forever only).
+## Notes: Dungeon-run logging, loot wish lists, and gear sets for Crusader Strike (World of Warcraft: Forever only).
 ## Author: CrusaderStrike
-## Version: 0.2.0
+## Version: 0.3.0
 ## SavedVariables: CrusaderStrikeDB
 ## SavedVariablesPerCharacter: CrusaderStrikeCharDB
 ## AllowLoadGameType: forever, camelot
 ## X-GameVersions: forever
-## X-SchemaVersion: 3
+## X-SchemaVersion: 4
 # Interface 16001: Forever client 1.60.1 (Warcraft Wiki TOC Forever Beta/Test;
 # wago.tools Forever build 1.60.1.70790). See docs/sources.md.
 
@@ -20,8 +20,13 @@ Logic\PvpHistory.lua
 Logic\Detection.lua
 Logic\DebugEvents.lua
 Logic\WishList.lua
+Logic\GearSlots.lua
+Logic\EquippedGear.lua
+Logic\GearEncoder.lua
+Logic\GearSets.lua
 Core.lua
 DungeonLog.lua
 Export.lua
 PvpLog.lua
 LootBrowser.lua
+GearSetsUI.lua

@@ -23,6 +23,10 @@ dofile(addon_root .. "Logic/PvpHistory.lua")
 dofile(addon_root .. "Logic/Detection.lua")
 dofile(addon_root .. "Logic/DebugEvents.lua")
 dofile(addon_root .. "Logic/WishList.lua")
+dofile(addon_root .. "Logic/GearSlots.lua")
+dofile(addon_root .. "Logic/EquippedGear.lua")
+dofile(addon_root .. "Logic/GearEncoder.lua")
+dofile(addon_root .. "Logic/GearSets.lua")
 
 local passed, failed = 0, 0
 local current = "?"
@@ -75,12 +79,14 @@ local files = {
   "test_pvp_events.lua",
   "test_detection.lua",
   "test_wishlist.lua",
+  "test_gear.lua",
 }
 
 -- Load frame-facing modules for handler tests (CreateFrame stubbed in mock_wow).
 dofile(addon_root .. "Core.lua")
 dofile(addon_root .. "DungeonLog.lua")
 dofile(addon_root .. "LootBrowser.lua")
+dofile(addon_root .. "GearSetsUI.lua")
 
 io.write("CrusaderStrike tests (Lua " .. _VERSION .. ")\n")
 for _, f in ipairs(files) do

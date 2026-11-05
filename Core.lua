@@ -2,18 +2,19 @@
   CrusaderStrike core: SavedVariables bootstrap, gameVersion (WoW Forever only), slash cmds.
   Storage is companion-uploader friendly:
     CrusaderStrikeDB (account)   — schemaVersion, settings, uploadQueue meta
-    CrusaderStrikeCharDB (char)  — gameVersion, activeRun, runs[idempotencyKey]=run, pvp{world[],battlegrounds[]}, wishLists
+    CrusaderStrikeCharDB (char)  — gameVersion, activeRun, runs, pvp, wishLists, gearSets
 ]]
 
 CrusaderStrike = CrusaderStrike or {}
 local CS = CrusaderStrike
 
 CS.ADDON_NAME = "CrusaderStrike"
-CS.VERSION = "0.2.0"
--- SavedVariables layout version. 3 adds CrusaderStrikeCharDB.wishLists (docs/loot-data.md).
+CS.VERSION = "0.3.0"
+-- SavedVariables layout version. 4 adds CrusaderStrikeCharDB.gearSets (CSGEAR1).
+-- 3 added CrusaderStrikeCharDB.wishLists (docs/loot-data.md).
 -- 2 added CrusaderStrikeCharDB.pvp (docs/pvp-schema.md).
 -- The run export payload keeps its own schemaVersion (1) in Logic/RunLifecycle.lua.
-CS.SCHEMA_VERSION = 3
+CS.SCHEMA_VERSION = 4
 
 local defaultsAccount = {
   schemaVersion = CS.SCHEMA_VERSION,
@@ -34,6 +35,12 @@ local defaultsChar = {
   runs = {}, -- [idempotencyKey] = run table
   pvp = { world = {}, battlegrounds = {}, seq = 0 }, -- schema v2, see docs/pvp-schema.md
   wishLists = {}, -- schema v3, per-dungeon wish lists; see docs/loot-data.md
+  gearSets = { -- schema v4, CSGEAR1 named gear sets
+    character_id = nil,
+    region = "us",
+    lists = {},
+    deleted = {},
+  },
 }
 
 local function deep_copy(src)
@@ -124,6 +131,7 @@ end
 local frame = CreateFrame("Frame", "CrusaderStrikeCoreFrame")
 frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("PLAYER_LOGIN")
+frame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 frame:SetScript("OnEvent", function(_, event, arg1)
   if event == "ADDON_LOADED" and arg1 == CS.ADDON_NAME then
     CrusaderStrikeDB = apply_defaults(CrusaderStrikeDB, defaultsAccount)
@@ -131,10 +139,20 @@ frame:SetScript("OnEvent", function(_, event, arg1)
     CrusaderStrikeCharDB.schemaVersion = CS.SCHEMA_VERSION
     CrusaderStrikeDB.schemaVersion = CS.SCHEMA_VERSION
     CrusaderStrikeCharDB.gameVersion = CS.DetectGameVersion()
+    if CrusaderStrikeGearSets and CrusaderStrikeGearSets.EnsureDB then
+      CrusaderStrikeGearSets.EnsureDB(CrusaderStrikeCharDB)
+    end
     CS.Debug("Loaded schema v" .. CS.SCHEMA_VERSION .. " gameVersion=" .. CrusaderStrikeCharDB.gameVersion)
   elseif event == "PLAYER_LOGIN" then
     if CS.DungeonLog and CS.DungeonLog.OnLogin then
       CS.DungeonLog.OnLogin()
+    end
+    if CrusaderStrikeEquippedGear and CrusaderStrikeEquippedGear.ScanNow then
+      CrusaderStrikeEquippedGear.ScanNow()
+    end
+  elseif event == "PLAYER_EQUIPMENT_CHANGED" then
+    if CrusaderStrikeEquippedGear and CrusaderStrikeEquippedGear.OnEquipmentChanged then
+      CrusaderStrikeEquippedGear.OnEquipmentChanged()
     end
   end
 end)
@@ -210,7 +228,41 @@ SlashCmdList["CRUSADERSTRIKE"] = function(msg)
     else
       CS.Print("loot browser unavailable")
     end
+  elseif cmd == "gearsets" or cmd == "gear" then
+    if CS.GearSetsUI and CS.GearSetsUI.Show then
+      CS.GearSetsUI.Show()
+    else
+      CS.Print("gear sets UI unavailable")
+    end
+  elseif cmd == "import" then
+    local raw = rest or ""
+    if raw == "" then
+      CS.Print("usage: /cs import <CSGEAR1:…|c=…>")
+      return
+    end
+    if not CrusaderStrikeGearEncoder or not CrusaderStrikeGearSets then
+      CS.Print("import unavailable")
+      return
+    end
+    local realm = (GetNormalizedRealmName and GetNormalizedRealmName()) or (GetRealmName and GetRealmName()) or ""
+    local character = (UnitName and UnitName("player")) or ""
+    local payload, err = CrusaderStrikeGearEncoder.Decode(raw, {
+      expect_realm = realm,
+      expect_character = character,
+    })
+    if not payload then
+      CS.Print("import rejected: " .. tostring(err))
+      return
+    end
+    -- Never apply equipped from import (strip if present).
+    payload.equipped = nil
+    local ok, aerr = CrusaderStrikeGearSets.ApplyImport(CS.GetCharDB(), payload)
+    if not ok then
+      CS.Print("import rejected: " .. tostring(aerr))
+      return
+    end
+    CS.Print("Imported gear sets (" .. tostring(#(payload.lists or {})) .. " lists)")
   else
-    CS.Print("Commands: /cs loot | /cs wishlist | /cs export [key] | /cs status | /cs pvp | /cs debug | /cs debug events [on|off|dump]")
+    CS.Print("Commands: /cs loot | /cs gearsets | /cs export [key] | /cs import <CSGEAR1> | /cs status | /cs pvp | /cs debug | /cs debug events [on|off|dump]")
   end
 end
