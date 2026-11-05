@@ -2,7 +2,7 @@
 ## Title: CrusaderStrike
 ## Notes: Dungeon-run logging, loot wish lists, and gear sets for Crusader Strike (World of Warcraft: Forever only).
 ## Author: CrusaderStrike
-## Version: 0.3.2
+## Version: 0.3.3
 ## SavedVariables: CrusaderStrikeDB
 ## SavedVariablesPerCharacter: CrusaderStrikeCharDB
 ## AllowLoadGameType: forever, camelot
