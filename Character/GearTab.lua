@@ -181,6 +181,7 @@ local csToggle
 local root
 local popout
 local iconRow
+local mainPane
 local dollFrame
 local ranged_presentation
 local topSetsBtn
@@ -436,6 +437,9 @@ end
 
 -- Match Blizzard's right pane. Does not call Expand, Collapse, or ToggleRightPane.
 local function apply_native_side_pane(cf)
+  if UI.RealignMainPane then
+    UI.RealignMainPane(cf)
+  end
   local collapsed = native_right_pane_collapsed(cf)
   if collapsed == nil then
     return
@@ -2031,6 +2035,42 @@ local function anchor_content_pane(frame, cf)
   frame._csContentPane = true
 end
 
+-- Keep the doll centered in the main pane. That pane tracks LeftPaneHost when
+-- the client has one, so CharacterFrame growing for the right inset does not
+-- move the doll.
+function UI.RealignMainPane(cf)
+  if not mainPane or not dollFrame or not root then
+    return
+  end
+  cf = cf or _G.CharacterFrame
+  local spec = Layout and Layout.mainPane or {}
+  local left = cf and cf.LeftPaneHost
+  if mainPane.ClearAllPoints then
+    mainPane:ClearAllPoints()
+  end
+  if left then
+    mainPane:SetPoint("TOPLEFT", left, "TOPLEFT", 0, 0)
+    mainPane:SetPoint("BOTTOMRIGHT", left, "BOTTOMRIGHT", 0, 0)
+    if left.GetWidth and left:GetWidth() then
+      mainPane:SetWidth(left:GetWidth())
+    elseif spec.width then
+      mainPane:SetWidth(spec.width)
+    end
+  else
+    mainPane:SetPoint("TOPLEFT", root, "TOPLEFT", 0, 0)
+    mainPane:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT", 0, 0)
+    mainPane:SetWidth(spec.width or 398)
+  end
+  local dollAnchor = (Layout and Layout.doll and Layout.doll.anchor) or {
+    point = "CENTER", relPoint = "CENTER", x = 0, y = 0,
+  }
+  if dollFrame.ClearAllPoints then
+    dollFrame:ClearAllPoints()
+  end
+  dollFrame:SetPoint(dollAnchor.point, mainPane, dollAnchor.relPoint or "CENTER", dollAnchor.x or 0, dollAnchor.y or 0)
+  mainPane._csMainPane = true
+end
+
 local function clear_mode_tab_checks(cf)
   local tabs = cf and cf.ModeTabs and cf.ModeTabs.Tabs
   if type(tabs) ~= "table" then
@@ -2141,7 +2181,10 @@ local function ensure_ui()
   end
   add_text(root, "GameFontNormalLarge", "Crusader Strike", 38, -14)
 
-  build_doll(root)
+  mainPane = CreateFrame("Frame", (Layout and Layout.mainPane and Layout.mainPane.frame) or "CrusaderStrikeGearMainPane", root)
+  mainPane._csMainPane = true
+  build_doll(mainPane)
+  UI.RealignMainPane(_G.CharacterFrame)
   if dollFrame and dollFrame.Show then
     dollFrame:Show()
   end

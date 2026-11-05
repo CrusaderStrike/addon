@@ -5,11 +5,12 @@
 CrusaderStrikeGearLayout = CrusaderStrikeGearLayout or {}
 local L = CrusaderStrikeGearLayout
 
--- Main pane owns the paper doll (model area + every gear slot) and the
--- side-pane toggle. The side pane owns the icon row and the three panels.
+-- The CS content frame can grow with CharacterFrame when the native right
+-- pane opens. The doll is centered in mainPane, which tracks LeftPaneHost
+-- (fixed width, Forever CharacterFrame.xml) and does not include RightPaneHost.
 L.panes = {
   main = {
-    frame = "CrusaderStrikeCharacterGearFrame",
+    frame = "CrusaderStrikeGearMainPane",
     owns = { "doll" },
   },
   side = {
@@ -24,12 +25,29 @@ L.panes = {
   },
 }
 
--- Paper doll is centered in the CS tab content frame (the main pane).
+-- Forever CharacterFrame.xml: LeftPaneHost is 398 wide and stays put when
+-- RightPaneHost (233) is shown or hidden.
+L.mainPane = {
+  frame = "CrusaderStrikeGearMainPane",
+  width = 398,
+  -- Prefer filling CharacterFrame.LeftPaneHost. Otherwise pin the left edge
+  -- of the CS content frame and keep this fixed width.
+  anchorToLeftPane = {
+    { point = "TOPLEFT", rel = "leftPane", relPoint = "TOPLEFT", x = 0, y = 0 },
+    { point = "BOTTOMRIGHT", rel = "leftPane", relPoint = "BOTTOMRIGHT", x = 0, y = 0 },
+  },
+  anchorFixed = {
+    { point = "TOPLEFT", rel = "root", relPoint = "TOPLEFT", x = 0, y = 0 },
+    { point = "BOTTOMLEFT", rel = "root", relPoint = "BOTTOMLEFT", x = 0, y = 0 },
+  },
+}
+
+-- Paper doll is centered in mainPane, not in the full CharacterFrame.
 L.doll = {
-  parent = "main",
+  parent = "mainPane",
   width = 338,
   height = 424,
-  anchor = { point = "CENTER", rel = "main", relPoint = "CENTER", x = 0, y = 0 },
+  anchor = { point = "CENTER", rel = "mainPane", relPoint = "CENTER", x = 0, y = 0 },
 }
 
 L.slotSize = 37

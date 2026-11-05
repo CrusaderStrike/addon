@@ -42,10 +42,13 @@ logo button in the strip.
   again while CS is already selected does nothing. Switching to another
   CharacterFrame mode tab still hides CS.
 - Layout numbers and ownership live in `Character/GearLayout.lua`. The paper
-  doll (model area and every gear slot) is centered in the CS tab content
-  frame. The side pane (`CrusaderStrikeGearPopout`) holds the icon row plus
-  Gear Sets, Browser, and Stats. The Browser fills that pane under the icon
-  row, with equal left and right edges, so it is centered in the side pane.
+  doll is centered in `CrusaderStrikeGearMainPane`, which fills
+  `CharacterFrame.LeftPaneHost` (398 wide in Forever's CharacterFrame.xml)
+  and does not include `RightPaneHost`. Opening the native right pane widens
+  `CharacterFrame` but does not move the doll. The side pane
+  (`CrusaderStrikeGearPopout`) holds the icon row plus Gear Sets, Browser,
+  and Stats. The Browser fills that pane under the icon row, with equal left
+  and right edges, so it is centered in the side pane.
 - **Gear Sets**, **Browser**, and **Stats** are inside the side pane. Their
   icons only switch which panel is selected. Show and hide of the whole side
   pane, including those three icons, follows Forever's native right-pane

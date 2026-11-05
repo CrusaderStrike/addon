@@ -114,20 +114,23 @@ describe("character gear tab scaffold", function()
     eq(rrel2, _G.CharacterFrame)
     eq(rrp2, "BOTTOMRIGHT")
     local doll = _G.CrusaderStrikeGearDoll
-    eq(doll:GetParent(), root)
     eq(doll._csPaperDoll, true)
     eq(doll._csOwnedDoll, true)
     eq(doll._allPoints, nil)
     eq(doll:GetParent() == _G.CharacterFrame, false)
     eq(doll:GetParent() == _G.UIParent, false)
+    local main = _G.CrusaderStrikeGearMainPane
+    eq(doll:GetParent(), main)
+    eq(main:GetParent(), root)
     local dp, drel, drp, dx, dy = doll:GetPoint(1)
     eq(dp, "CENTER")
-    eq(drel, root)
+    eq(drel, main)
     eq(drp, "CENTER")
     eq(dx, 0)
     eq(dy, 0)
     eq(drel == _G.UIParent, false)
     eq(drel == _G.CharacterFrame, false)
+    eq(drel == root, false)
     eq(doll:GetWidth(), 338)
     eq(doll:GetHeight(), 424)
 
@@ -457,10 +460,12 @@ describe("character gear tab scaffold", function()
     anchored_in_popout(stats)
 
     local doll = _G.CrusaderStrikeGearDoll
-    eq(doll:GetParent(), root)
+    local main = _G.CrusaderStrikeGearMainPane
+    eq(doll:GetParent(), main)
+    eq(main:GetParent(), root)
     local dp, drel, drp, dx, dy = doll:GetPoint(1)
     eq(dp, "CENTER")
-    eq(drel, root)
+    eq(drel, main)
     eq(drp, "CENTER")
     eq(dx, 0)
     eq(dy, 0)
@@ -495,7 +500,7 @@ describe("character gear tab scaffold", function()
     eq(mx, UI.WEAPON_ROW_X)
     eq(ox, UI.WEAPON_ROW_X + 37 + UI.WEAPON_ROW_GAP)
     eq(rx, ox + 37 + UI.WEAPON_ROW_GAP)
-    eq(_G.CrusaderStrikeGearDoll:GetParent(), root)
+    eq(_G.CrusaderStrikeGearDoll:GetParent(), _G.CrusaderStrikeGearMainPane)
 
     local list = _G.CrusaderStrikeGearDungeonList
     eq(list:GetParent(), browser)
@@ -1085,8 +1090,35 @@ describe("character gear tab scaffold", function()
     }
     _G.CharacterFrameRightPaneToggleButton = cf.RightPaneToggleButton
     _G.CharacterFrame = cf
+    cf.LeftPaneHost = {
+      _width = 398,
+      GetWidth = function(self) return self._width end,
+      SetWidth = function(self, w) self._width = w end,
+    }
+    cf._width = 540
+    cf.SetWidth = function(self, w) self._width = w end
+    cf.GetWidth = function(self) return self._width end
     UI.Show()
     eq(_G.CrusaderStrikeGearSideToggle, nil)
+    local main = _G.CrusaderStrikeGearMainPane
+    local doll = _G.CrusaderStrikeGearDoll
+    local function centers_match()
+      local p, rel, rp, x = doll:GetPoint(1)
+      eq(p, "CENTER")
+      eq(rel, main)
+      eq(rp, "CENTER")
+      eq(x, 0)
+      eq(main:GetWidth(), 398)
+      eq(main:GetPoint(1) == "TOPLEFT" and select(2, main:GetPoint(1)) == cf.LeftPaneHost, true)
+    end
+    centers_match()
+    cf:SetWidth(540 + 233)
+    cf:SetRightPaneCollapsed(true)
+    centers_match()
+    eq(doll:GetPoint(1) == "CENTER" and select(4, doll:GetPoint(1)) == 0, true)
+    cf:SetWidth(540)
+    cf:ToggleRightPane()
+    centers_match()
     eq(CrusaderStrikeGearLayout.nativeSideToggle.frame, "CharacterFrameRightPaneToggleButton")
     eq(UI.GetPreview().popout, true)
     ok(_G.CrusaderStrikeGearPopout:IsShown())
