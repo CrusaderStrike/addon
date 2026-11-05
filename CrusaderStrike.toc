@@ -21,6 +21,7 @@ Logic\Detection.lua
 Logic\DebugEvents.lua
 Logic\WishList.lua
 Logic\GearSlots.lua
+Logic\GearOps.lua
 Logic\GearEncoder.lua
 Logic\EquippedGear.lua
 Logic\GearSets.lua

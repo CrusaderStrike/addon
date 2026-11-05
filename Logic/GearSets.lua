@@ -216,6 +216,8 @@ function G.CreateSet(charDB, fields, player_level)
     role_spec = role_spec,
     slots = {},
     removes = {},
+    pending_ops = {}, -- OpenAPI GearOp queue for companion /sync (platform#46)
+    version = 0, -- last observed list version (base_version for ops)
     edited_at = now_iso(),
     edited_in = "game",
   }
@@ -290,6 +292,29 @@ function G.UpdateSet(charDB, local_id, patch, player_level)
   return list
 end
 
+local function drop_removes_for_slot(removes, slot)
+  local kept = {}
+  for _, op in ipairs(removes or {}) do
+    if not (op.slot == slot and (op.op == "clear_slot" or op.op == "remove_item")) then
+      kept[#kept + 1] = op
+    end
+  end
+  return kept
+end
+
+local function drop_pending_for_slot(pending, slot)
+  local kept = {}
+  for _, op in ipairs(pending or {}) do
+    if op.slot ~= slot then
+      kept[#kept + 1] = op
+    end
+  end
+  return kept
+end
+
+-- In-game slot pick/clear. Emits OpenAPI set_slot/clear_slot into list.pending_ops
+-- (platform#46 primary). CSGEAR1 removes stay clear_slot-only on the primary path;
+-- legacy mode also records remove_item for older fixtures.
 function G.SetSlot(charDB, local_id, slot, item_id)
   local list = G.FindByLocalId(charDB, local_id)
   if not list then
@@ -300,41 +325,89 @@ function G.SetSlot(charDB, local_id, slot, item_id)
   end
   list.slots = list.slots or {}
   list.removes = list.removes or {}
-  if item_id == nil then
-    local prev = list.slots[slot]
-    list.slots[slot] = nil
-    -- explicit clear_slot for sync
-    local found = false
-    for _, op in ipairs(list.removes) do
-      if op.op == "clear_slot" and op.slot == slot then
-        found = true
-        break
-      end
-    end
-    if not found then
-      list.removes[#list.removes + 1] = { op = "clear_slot", slot = slot }
-    end
-    if prev ~= nil then
-      -- also record remove_item when we knew the prior id
-      list.removes[#list.removes + 1] = { op = "remove_item", slot = slot, item_id = prev }
-    end
-  else
+  list.pending_ops = list.pending_ops or {}
+  if type(list.version) ~= "number" then
+    list.version = 0
+  end
+
+  local prev = list.slots[slot]
+  local prior = {}
+  if prev ~= nil then
+    prior[1] = prev
+  end
+
+  local mode = "set_slot"
+  if CrusaderStrikeGearOps and CrusaderStrikeGearOps.GetMode then
+    mode = CrusaderStrikeGearOps.GetMode()
+  end
+
+  if item_id ~= nil then
     if type(item_id) ~= "number" or item_id ~= math.floor(item_id) or item_id < 1 or item_id > 2147483647 then
       return nil, "validation"
     end
-    list.slots[slot] = item_id
-    -- drop pending clears for this slot
-    local kept = {}
-    for _, op in ipairs(list.removes) do
-      if not (op.slot == slot and (op.op == "clear_slot" or op.op == "remove_item")) then
-        kept[#kept + 1] = op
-      end
-    end
-    list.removes = kept
   end
+
+  local ops = nil
+  if CrusaderStrikeGearOps and CrusaderStrikeGearOps.BuildSlotOps then
+    local err
+    ops, err = CrusaderStrikeGearOps.BuildSlotOps({
+      slot = slot,
+      item_id = item_id,
+      base_version = list.version,
+      prior_item_ids = prior,
+      mode = mode,
+      source = "addon",
+      force_clear = (item_id == nil and prev ~= nil),
+    })
+    if not ops then
+      return nil, err or "validation"
+    end
+  end
+
+  -- Apply local slot state
+  if item_id == nil then
+    list.slots[slot] = nil
+    list.removes = drop_removes_for_slot(list.removes, slot)
+    -- CSGEAR1 explicit clear (always). Option A also kept remove_item under legacy mode.
+    list.removes[#list.removes + 1] = { op = "clear_slot", slot = slot }
+    if mode == "legacy" and prev ~= nil then
+      list.removes[#list.removes + 1] = { op = "remove_item", slot = slot, item_id = prev }
+    end
+  else
+    list.slots[slot] = item_id
+    list.removes = drop_removes_for_slot(list.removes, slot)
+  end
+
+  -- Queue OpenAPI ops for companion /sync (replace any prior pending for this slot).
+  if ops then
+    list.pending_ops = drop_pending_for_slot(list.pending_ops, slot)
+    for _, op in ipairs(ops) do
+      list.pending_ops[#list.pending_ops + 1] = op
+    end
+  end
+
   list.edited_at = now_iso()
   list.edited_in = "game"
-  return list
+  return list, ops
+end
+
+-- Return and clear queued OpenAPI ops (companion drain). op_id dedupe is server-side.
+function G.DrainPendingOps(charDB, local_id)
+  local list = G.FindByLocalId(charDB, local_id)
+  if not list then
+    return nil, "validation"
+  end
+  local ops = list.pending_ops or {}
+  list.pending_ops = {}
+  return ops
+end
+
+function G.PeekPendingOps(charDB, local_id)
+  local list = G.FindByLocalId(charDB, local_id)
+  if not list then
+    return nil, "validation"
+  end
+  return list.pending_ops or {}
 end
 
 function G.DeleteSet(charDB, local_id)
@@ -369,6 +442,20 @@ local function copy_list(src)
       }
     end
   end
+  local pending_ops = {}
+  if type(src.pending_ops) == "table" then
+    for i, op in ipairs(src.pending_ops) do
+      pending_ops[i] = {
+        op_id = op.op_id,
+        type = op.type,
+        slot = op.slot,
+        item_id = op.item_id,
+        priority = op.priority,
+        base_version = op.base_version,
+        source = op.source,
+      }
+    end
+  end
   return {
     id = src.id,
     local_id = src.local_id,
@@ -378,6 +465,8 @@ local function copy_list(src)
     role_spec = src.role_spec,
     slots = slots,
     removes = removes,
+    pending_ops = pending_ops,
+    version = src.version or 0,
     edited_at = src.edited_at,
     edited_in = src.edited_in,
   }
@@ -388,7 +477,11 @@ function G.BuildExportPayload(charDB, meta)
   meta = meta or {}
   local lists = {}
   for i, list in ipairs(bucket.lists) do
-    lists[i] = copy_list(list)
+    local copied = copy_list(list)
+    -- pending_ops / version are local companion-sync state, not CSGEAR1 wire fields.
+    copied.pending_ops = nil
+    copied.version = nil
+    lists[i] = copied
   end
   local deleted = {}
   for i, d in ipairs(bucket.deleted) do
