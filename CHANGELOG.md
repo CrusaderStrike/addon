@@ -5,6 +5,7 @@ All notable changes to CrusaderStrike (World of Warcraft: Forever only).
 ## Unreleased
 
 ### Changed
+- **Deferred envelope nits from #46 (#51):** `Retry-After` accepts HTTP-dates (IMF-fixdate / RFC 850 / asctime, UTC) as well as delta-seconds; header lookup is case-insensitive for any casing; `list_limit_reached` honors `error.details.limit` (exposed as `limit` on ParseErrorEnvelope / FailSync). Added validation_error / list_limit_reached tests. Refs #26, #46.
 - **Consume platform#54 invalid_json field-map (#49):** `ParseErrorEnvelope` / `ApplyOpsResult` recognize `{errors:{body:"invalid_json"}}` (and other field-map 400s) as non-retryable `invalid_json` / `validation_error` — not inferred `internal_error`. FailSync clears syncing, keeps pending_ops, surfaces SyncErrorMessage. Locked to CrusaderStrike/platform#54 (`283a775`). Refs #26.
 
 ## 0.3.4 (WoW Forever)
