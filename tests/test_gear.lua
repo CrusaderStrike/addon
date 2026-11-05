@@ -373,3 +373,135 @@ describe("export build", function()
     _G._CS_TestEquipped = nil
   end)
 end)
+
+describe("gear sets validate-before-mutate (#27)", function()
+  local function fresh_db()
+    return {
+      gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} },
+    }
+  end
+
+  it("ApplyImport leaves character_id and region untouched on list_limit_reached", function()
+    local db = fresh_db()
+    for i = 1, 20 do
+      local list, err = CrusaderStrikeGearSets.CreateSet(db, {
+        name = "Set " .. i,
+        type = "max_level",
+      }, 60)
+      ok(list ~= nil, err)
+    end
+    local before_lists = #db.gearSets.lists
+    local payload = {
+      character_id = "should-not-stick",
+      region = "eu",
+      lists = {
+        {
+          id = nil,
+          local_id = "overflow1",
+          name = "Overflow",
+          type = "max_level",
+          until_level = nil,
+          role_spec = "fury",
+          edited_at = "2026-11-05T10:00:00Z",
+          edited_in = "web",
+          slots = {},
+          removes = {},
+        },
+      },
+      deleted_lists = {},
+    }
+    local applied, err = CrusaderStrikeGearSets.ApplyImport(db, payload)
+    eq(applied, false)
+    eq(err, "list_limit_reached")
+    eq(db.gearSets.character_id, nil)
+    eq(db.gearSets.region, "us")
+    eq(#db.gearSets.lists, before_lists)
+  end)
+
+  it("UpdateSet does not partially mutate when until_level validation fails", function()
+    local db = fresh_db()
+    local list = CrusaderStrikeGearSets.CreateSet(db, {
+      name = "Original",
+      type = "leveling",
+      until_level = 40,
+      role_spec = "fury",
+    }, 25)
+    ok(list ~= nil)
+    local updated, err = CrusaderStrikeGearSets.UpdateSet(db, list.local_id, {
+      name = "Renamed",
+      type = "leveling",
+      until_level = 25, -- not above current level 25
+      role_spec = "arms",
+    }, 25)
+    eq(updated, nil)
+    eq(err, "until_level_not_above_current_level")
+    eq(list.name, "Original")
+    eq(list.type, "leveling")
+    eq(list.until_level, 40)
+    eq(list.role_spec, "fury")
+  end)
+
+  it("empty or whitespace role_spec is stored as null on create, update, and decode", function()
+    local db = fresh_db()
+    local created = CrusaderStrikeGearSets.CreateSet(db, {
+      name = "EmptyRole",
+      type = "max_level",
+      role_spec = "   ",
+    }, 60)
+    ok(created ~= nil)
+    eq(created.role_spec, nil)
+
+    local with_role = CrusaderStrikeGearSets.CreateSet(db, {
+      name = "HasRole",
+      type = "max_level",
+      role_spec = "fury",
+    }, 60)
+    ok(with_role ~= nil)
+    eq(with_role.role_spec, "fury")
+    local cleared = CrusaderStrikeGearSets.UpdateSet(db, with_role.local_id, {
+      role_spec = "",
+    }, 60)
+    ok(cleared ~= nil)
+    eq(cleared.role_spec, nil)
+
+    local payload = {
+      schema_version = 1,
+      game_version = "forever",
+      region = "us",
+      realm = "CrusaderStrike",
+      character = "Tester",
+      character_id = nil,
+      exported_at = "2026-11-05T06:30:00Z",
+      equipped = {},
+      lists = {
+        {
+          id = nil,
+          local_id = "abcd1234",
+          name = "WhitespaceRole",
+          type = "max_level",
+          until_level = nil,
+          role_spec = "  ",
+          edited_at = "2026-11-05T06:29:10Z",
+          edited_in = "game",
+          slots = {},
+          removes = {},
+        },
+      },
+      deleted_lists = {},
+    }
+    local encoded, enc_err = CrusaderStrikeGearEncoder.Encode(payload)
+    ok(encoded ~= nil, enc_err)
+    local decoded, dec_err = CrusaderStrikeGearEncoder.Decode(encoded)
+    ok(decoded ~= nil, dec_err)
+    eq(decoded.lists[1].role_spec, nil)
+
+    local import_db = fresh_db()
+    payload.role_spec = nil -- top-level N/A
+    payload.lists[1].role_spec = ""
+    payload.character_id = "char-null-role"
+    local applied, aerr = CrusaderStrikeGearSets.ApplyImport(import_db, payload)
+    ok(applied, aerr)
+    eq(import_db.gearSets.lists[1].role_spec, nil)
+    eq(import_db.gearSets.character_id, "char-null-role")
+  end)
+end)

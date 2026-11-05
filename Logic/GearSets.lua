@@ -240,6 +240,14 @@ function G.UpdateSet(charDB, local_id, patch, player_level)
     return nil, "validation"
   end
   local bucket = G.EnsureDB(charDB)
+  patch = patch or {}
+
+  -- Validate on a draft first so a failed update never partially mutates SV.
+  local draft_name = list.name
+  local draft_type = list.type
+  local draft_until = list.until_level
+  local draft_role = list.role_spec
+
   if patch.name ~= nil then
     local name, nerr = G.NormalizeName(patch.name)
     if not name then
@@ -248,17 +256,20 @@ function G.UpdateSet(charDB, local_id, patch, player_level)
     if name_taken(bucket.lists, name, local_id) then
       return nil, "validation"
     end
-    list.name = name
+    draft_name = name
   end
   if patch.type ~= nil then
-    list.type = patch.type
+    if patch.type ~= "leveling" and patch.type ~= "max_level" then
+      return nil, "validation"
+    end
+    draft_type = patch.type
   end
-  if list.type == "max_level" then
-    list.until_level = nil
+  if draft_type == "max_level" then
+    draft_until = nil
   elseif patch.until_level ~= nil then
-    list.until_level = patch.until_level
+    draft_until = patch.until_level
   end
-  local ok, code = G.ValidateUntilLevel(list.type, list.until_level, player_level)
+  local ok, code = G.ValidateUntilLevel(draft_type, draft_until, player_level)
   if not ok then
     return nil, code
   end
@@ -267,8 +278,13 @@ function G.UpdateSet(charDB, local_id, patch, player_level)
     if rerr then
       return nil, rerr
     end
-    list.role_spec = role_spec
+    draft_role = role_spec
   end
+
+  list.name = draft_name
+  list.type = draft_type
+  list.until_level = draft_until
+  list.role_spec = draft_role
   list.edited_at = now_iso()
   list.edited_in = "game"
   return list
@@ -420,14 +436,9 @@ function G.ApplyImport(charDB, payload)
   if not bucket or type(payload) ~= "table" then
     return false, "validation"
   end
-  if payload.character_id ~= nil then
-    bucket.character_id = payload.character_id
-  end
-  if type(payload.region) == "string" then
-    bucket.region = payload.region
-  end
 
-  -- Snapshot so reject leaves DB unchanged — caller should only call after full validate.
+  -- Build the merge on a snapshot first. Reject must leave SavedVariables
+  -- untouched — including character_id and region.
   local new_lists = {}
   for _, list in ipairs(bucket.lists) do
     new_lists[#new_lists + 1] = copy_list(list)
@@ -451,6 +462,14 @@ function G.ApplyImport(charDB, payload)
     return nil, nil
   end
 
+  local function normalize_incoming_role(role_spec)
+    local normalized, rerr = G.NormalizeRoleSpec(role_spec)
+    if rerr then
+      return nil, rerr
+    end
+    return normalized
+  end
+
   for _, incoming in ipairs(payload.lists or {}) do
     local existing = find_in(new_lists, incoming)
     if not existing then
@@ -458,6 +477,11 @@ function G.ApplyImport(charDB, payload)
         return false, "list_limit_reached"
       end
       local copied = copy_list(incoming)
+      local role_spec, rerr = normalize_incoming_role(incoming.role_spec)
+      if rerr then
+        return false, rerr
+      end
+      copied.role_spec = role_spec
       copied.slots = apply_removes_to_slots(copied.slots, incoming.removes)
       copied.removes = {} -- consumed
       new_lists[#new_lists + 1] = copied
@@ -466,12 +490,16 @@ function G.ApplyImport(charDB, payload)
       local local_at = existing.edited_at or ""
       if remote_at >= local_at then
         -- last-edited-wins: take remote fields, apply removes
+        local role_spec, rerr = normalize_incoming_role(incoming.role_spec)
+        if rerr then
+          return false, rerr
+        end
         existing.id = incoming.id ~= nil and incoming.id or existing.id
         existing.local_id = incoming.local_id or existing.local_id
         existing.name = incoming.name
         existing.type = incoming.type
         existing.until_level = incoming.until_level
-        existing.role_spec = incoming.role_spec
+        existing.role_spec = role_spec
         existing.edited_at = incoming.edited_at
         existing.edited_in = incoming.edited_in or "web"
         if type(incoming.slots) == "table" then
@@ -512,6 +540,13 @@ function G.ApplyImport(charDB, payload)
     return false, "list_limit_reached"
   end
 
+  -- Success only: commit character_id / region / lists / deleted together.
+  if payload.character_id ~= nil then
+    bucket.character_id = payload.character_id
+  end
+  if type(payload.region) == "string" then
+    bucket.region = payload.region
+  end
   bucket.lists = new_lists
   -- Clear local deleted queue once sync string applied (web has them).
   bucket.deleted = {}

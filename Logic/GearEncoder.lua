@@ -217,8 +217,18 @@ local function validate_list(list)
     end
   end
   if list.role_spec ~= nil then
-    if type(list.role_spec) ~= "string" or #list.role_spec > 32 or has_control(list.role_spec) then
+    if type(list.role_spec) ~= "string" or has_control(list.role_spec) then
       return false, "validation"
+    end
+    -- Soft-normalize empty / whitespace to null (schema §5).
+    local trimmed = list.role_spec:match("^%s*(.-)%s*$") or ""
+    if trimmed == "" then
+      list.role_spec = nil
+    else
+      if #trimmed > 32 then
+        return false, "validation"
+      end
+      list.role_spec = trimmed
     end
   end
   if list.edited_at ~= nil and not valid_iso(list.edited_at) then
