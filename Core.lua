@@ -310,6 +310,12 @@ SlashCmdList["CRUSADERSTRIKE"] = function(msg)
     else
       CS.Print("loot browser unavailable")
     end
+  elseif cmd == "geartab" then
+    if CS.CharacterGearTab and CS.CharacterGearTab.Show then
+      CS.CharacterGearTab.Show()
+    else
+      CS.Print("character gear tab unavailable")
+    end
   elseif cmd == "gearsets" or cmd == "gear" then
     local sub = rest and rest:match("^(%S+)")
     if sub == "check" then
@@ -327,6 +333,6 @@ SlashCmdList["CRUSADERSTRIKE"] = function(msg)
     end
     CS.ImportGearString(raw)
   else
-    CS.Print("Commands: /cs loot | /cs wishlist | /cs gearsets [check] | /cs import <CSGEAR1> | /cs export [key] | /cs status | /cs pvp | /cs debug [on|off] | /cs debug simulate kill [boss]|death [unit] | /cs debug events [on|off|dump]")
+    CS.Print("Commands: /cs loot | /cs wishlist | /cs geartab | /cs gearsets [check] | /cs import <CSGEAR1> | /cs export [key] | /cs status | /cs pvp | /cs debug [on|off] | /cs debug simulate kill [boss]|death [unit] | /cs debug events [on|off|dump]")
   end
 end

@@ -16,6 +16,7 @@ dofile(addon_root .. "tests/mock_wow.lua")
 -- Load pure modules directly (no CreateFrame side effects needed for most tests)
 dofile(addon_root .. "Data/Bosses.lua")
 dofile(addon_root .. "Data/Loot.lua")
+dofile(addon_root .. "Data/ForeverLootOverlay.lua")
 dofile(addon_root .. "Logic/Idempotency.lua")
 dofile(addon_root .. "Logic/Encoder.lua")
 dofile(addon_root .. "Logic/RunLifecycle.lua")
@@ -28,6 +29,7 @@ dofile(addon_root .. "Logic/GearOps.lua")
 dofile(addon_root .. "Logic/GearEncoder.lua")
 dofile(addon_root .. "Logic/EquippedGear.lua")
 dofile(addon_root .. "Logic/GearSets.lua")
+dofile(addon_root .. "Logic/GearBrowser.lua")
 
 local passed, failed = 0, 0
 local current = "?"
@@ -83,6 +85,8 @@ local files = {
   "test_gear.lua",
   "test_gear_live_compat.lua",
   "test_simulate.lua",
+  "test_gear_browser.lua",
+  "test_character_gear_tab.lua",
 }
 
 -- Load frame-facing modules for handler tests (CreateFrame stubbed in mock_wow).
@@ -90,6 +94,7 @@ dofile(addon_root .. "Core.lua")
 dofile(addon_root .. "DungeonLog.lua")
 dofile(addon_root .. "LootBrowser.lua")
 dofile(addon_root .. "GearSetsUI.lua")
+dofile(addon_root .. "Character/GearTab.lua")
 dofile(addon_root .. "DebugSimulate.lua")
 dofile(addon_root .. "Export.lua")
 

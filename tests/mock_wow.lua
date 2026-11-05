@@ -29,9 +29,12 @@ function _G.CreateFrame(frameType, name, parent, template)
   local f = {
     _type = frameType,
     _name = name,
+    _parent = parent,
+    _template = template,
     _scripts = {},
     _events = {},
     _shown = false,
+    _level = 0,
   }
   function f:RegisterEvent(e)
     if e == "COMBAT_LOG_EVENT_UNFILTERED" then
@@ -42,8 +45,35 @@ function _G.CreateFrame(frameType, name, parent, template)
   end
   function f:UnregisterEvent(e) self._events[e] = nil end
   function f:SetScript(ev, fn) self._scripts[ev] = fn end
+  function f:GetScript(ev) return self._scripts[ev] end
+  function f:HookScript(ev, fn)
+    local prev = self._scripts[ev]
+    self._scripts[ev] = function(...)
+      if prev then prev(...) end
+      if fn then fn(...) end
+    end
+  end
   function f:SetSize() end
   function f:SetPoint() end
+  function f:SetAllPoints() end
+  function f:ClearAllPoints() end
+  function f:SetParent(p) self._parent = p end
+  function f:GetParent() return self._parent end
+  function f:SetFrameLevel(level) self._level = level end
+  function f:GetFrameLevel() return self._level or 0 end
+  function f:SetShown(shown) self._shown = not not shown end
+  function f:SetID(id) self._id = id end
+  function f:GetID() return self._id end
+  function f:SetChecked(checked) self._checked = not not checked end
+  function f:GetChecked() return self._checked end
+  function f:SetAlpha() end
+  function f:Raise() end
+  function f:RegisterForClicks() end
+  function f:SetCustomOnMouseUpHandler(fn) self._mouseup = fn end
+  function f:SetHitRectInsets() end
+  function f:SetClampedToScreen() end
+  function f:EnableMouseWheel() end
+  function f:SetBackdropBorderColor() end
   function f:SetFrameStrata() end
   function f:SetMovable() end
   function f:EnableMouse() end
@@ -55,14 +85,33 @@ function _G.CreateFrame(frameType, name, parent, template)
   function f:CreateFontString()
     return {
       SetPoint = noop,
-      SetText = noop,
+      SetText = function(self, t) self._text = t end,
+      GetText = function(self) return self._text end,
       SetWidth = noop,
+      SetHeight = noop,
       SetJustifyH = noop,
+      SetJustifyV = noop,
       SetTextColor = noop,
+      SetFontObject = noop,
+      SetWordWrap = noop,
+      SetSpacing = noop,
+      SetAlpha = noop,
+      Hide = noop,
+      Show = noop,
+      ClearAllPoints = noop,
     }
   end
   function f:CreateTexture()
-    return { SetSize = noop, SetPoint = noop, SetTexture = noop }
+    return {
+      SetSize = noop,
+      SetPoint = noop,
+      SetAllPoints = noop,
+      SetTexture = noop,
+      SetAlpha = noop,
+      Hide = noop,
+      Show = noop,
+      GetTexture = function(self) return self._tex end,
+    }
   end
   function f:IsShown()
     return self._shown
@@ -146,6 +195,7 @@ function M.load_addon()
   local files = {
     "Data/Bosses.lua",
     "Data/Loot.lua",
+    "Data/ForeverLootOverlay.lua",
     "Logic/Idempotency.lua",
     "Logic/Encoder.lua",
     "Logic/RunLifecycle.lua",
@@ -157,12 +207,14 @@ function M.load_addon()
     "Logic/EquippedGear.lua",
     "Logic/GearEncoder.lua",
     "Logic/GearSets.lua",
+    "Logic/GearBrowser.lua",
     "Core.lua",
     "DungeonLog.lua",
     "Export.lua",
     "PvpLog.lua",
     "LootBrowser.lua",
     "GearSetsUI.lua",
+    "Character/GearTab.lua",
   }
   for _, rel in ipairs(files) do
     local path = base .. "/" .. rel

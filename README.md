@@ -33,6 +33,10 @@ Addon for **World of Warcraft: Forever only** that logs dungeon runs for the Cru
 | `Data/Loot.lua` | Bundled Forever dungeon loot (RFC verified sample; see docs/loot-data.md) |
 | `Logic/WishList.lua` | Pure per-dungeon wish-list helpers (unit-tested) |
 | `LootBrowser.lua` | `/cs loot` browser UI + CHAT_MSG_LOOT obtain marking |
+| `Character/GearTab.lua` | Last character-pane tab: wishlist gear sets + gear browser scaffold |
+| `Logic/GearBrowser.lua` | Dungeon / name / item-id adapter (empty Atlas-shaped baseline) |
+| `Data/ForeverLootOverlay.lua` | Hand-curated Forever loot overlay example |
+| `docs/character-gear-tab.md` | Character tab layout, Atlas GPL note, overlay plan |
 | `docs/forever-event-check.md` | In-game Forever event checklist for Drew |
 | `Logic/*` | Pure Lua (unit-tested) |
 | `docs/run-schema.md` | Schema for platform#3 |
@@ -76,6 +80,10 @@ Named leveling / max_level gear sets sync by copy-paste (`CSGEAR1:`). Equipped g
 ## Loot browser + wish lists (`/cs loot`)
 
 In-game UI to browse Forever dungeon loot and build a per-character wish list per dungeon (addon#2). Open with `/cs loot` or `/cs wishlist`. Lists are stored in `CrusaderStrikeCharDB.wishLists` (schema v3). v0.2.0 ships verified Ragefire Chasm boss rares only; other dungeons appear in the list without loot rows until IDs are confirmed — see [docs/loot-data.md](docs/loot-data.md). No CLEU; obtain marking uses `CHAT_MSG_LOOT`.
+
+## Character gear tab (`/cs geartab`)
+
+Scaffold for a last tab on the Forever character pane. It reuses the real paper-doll slot buttons for a wishlist preview (no Equip button, no Equipment Manager sync). Top tabs list saved gear sets and a gear browser (dungeon filter, or search by item name or item ID). Loot rows use an empty Atlas-shaped adapter plus a hand-curated Forever overlay. AtlasLoot Classic is a GPL-2.0 layout reference only — do not copy it wholesale. See [docs/character-gear-tab.md](docs/character-gear-tab.md).
 
 ## Develop / test
 

@@ -4,6 +4,9 @@ All notable changes to CrusaderStrike (World of Warcraft: Forever only).
 
 ## Unreleased
 
+### Added
+- **Character pane gear tab (scaffold):** last CharacterFrame mode tab and a CS subframe that reuses the real PaperDoll slot buttons for a wishlist preview. Top tabs for saved gear sets and a gear browser (dungeon filter, item name or item ID) wired to an empty Atlas-shaped adapter plus one Forever overlay example. No equip path. See `docs/character-gear-tab.md`.
+
 ## 0.3.5 (WoW Forever)
 
 - Release 2026-11-05 for #26 morning check: includes #55/#56 CSGEAR1 morning-path harden and #57/#58 live gear-lists compat + `/cs gearsets check` (also #49/#51/#53 envelope harden). No schema change.

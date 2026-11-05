@@ -79,6 +79,10 @@ Pure helpers in `Logic/WishList.lua`: `Add`, `Remove`, `Reorder`, `MarkObtained`
 ## UI / commands
 
 - `/cs loot [mapId]` or `/cs wishlist` — open the browser (`LootBrowser.lua`)
+- `/cs geartab` — character-pane wishlist scaffold (`Character/GearTab.lua`).
+  AtlasLoot Classic `data.lua` is a GPL-2.0 layout reference only (do not copy
+  it wholesale). Forever drops go through `Data/ForeverLootOverlay.lua`. See
+  `docs/character-gear-tab.md`.
 - Search box + slot filter cycle (All → Weapon → …)
 - Add / Remove on loot rows; wish-list view toggles obtained on click;
   Shift/Alt-click reorders
