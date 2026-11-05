@@ -16,7 +16,7 @@ WoW addons cannot make arbitrary HTTPS requests. MVP upload is `/cs export` → 
 
 - Read `WTF/Account/<account>/SavedVariables/CrusaderStrike.lua` and per-character SV files.
 - Parse `CrusaderStrikeCharDB.runs` (and `pvp` when ready), build schemaVersion 1 records (see `docs/run-schema.md`, `docs/pvp-schema.md`).
-- POST an `AddonUpload` envelope to **`POST /api/v1/uploads`** (`https://api.crusaderstrike.com/api/v1/uploads`) with the same `addon_run_id` / `addon_pvp_id` so retries are safe.
+- POST an `AddonUpload` envelope to **`POST /api/v1/uploads`** (`https://api.crusaderstrike.com/api/v1/uploads`) with the same record IDs so retries are safe: dungeon runs send JSON `addonRunId` (stored as column `addon_run_id`); PvP records send `addon_pvp_id` (see `docs/pvp-schema.md`).
 - Respect platform caps and limits: whole body ≤ **1 MiB**, `dungeonRuns` ≤ 100, `worldPvp` ≤ 1000, `battlegrounds` ≤ 500, and the **5 s** successful-upload cooldown (`429` + `Retry-After`). Split backlogs across requests.
 - Remember acknowledged keys locally (and optionally write back under `CrusaderStrikeDB.companion`) so runs are not double-prompted.
 - Cross-platform: Windows first (most WoW Forever players), macOS nice-to-have.
