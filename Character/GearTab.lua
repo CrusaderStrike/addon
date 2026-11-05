@@ -16,7 +16,10 @@
 -- Entry: /cs geartab (CharacterFrame may be closed), or the CS-owned side-tab
 -- logo under the Forever mode-tab strip. Either path shows this window only.
 --
--- The window holds Gear Sets, Gear Browser, and Stats as separate panes.
+-- The left pane is the gear doll. Gear Sets, Browser, and Stats are a
+-- right-side pop-out (same idea as PaperDoll stats / equipment / titles):
+-- the pop-out is anchored to the main frame's right edge, its content is
+-- anchored to the pop-out, and closing it hides that UI.
 -- Left-click a browser item to equip it into the current gear set; right-click
 -- a CS gear-set slot to unequip. AtlasLoot Classic data.lua is a layout
 -- reference only (GPL-2.0). See docs/character-gear-tab.md.
@@ -28,11 +31,18 @@ local UI = CS.CharacterGearTab
 
 UI.FRAME_NAME = "CrusaderStrikeCharacterGearFrame"
 
--- Standalone window size. Deliberately not CharacterFrame's dimensions.
-UI.WINDOW_WIDTH = 560
-UI.WINDOW_HEIGHT = 560
+-- Left pane only. The sets/browser/stats pop-out hangs off the right edge.
+-- Deliberately not CharacterFrame's dimensions.
+UI.WINDOW_WIDTH = 292
+UI.WINDOW_HEIGHT = 600
+UI.POPOUT_WIDTH = 320
+UI.POPOUT_INSET = 8
+UI.POPOUT_SCROLLBAR = 26
+UI.POPOUT_INNER = UI.POPOUT_WIDTH - (UI.POPOUT_INSET * 2) - UI.POPOUT_SCROLLBAR
+-- Icon row and pop-out share this offset so the pane lines up with the toggles.
+UI.POPOUT_TOP = -36
 local DOLL_WIDTH = 236
-local TITLE_BAR = 44
+local DOLL_TOP = -84
 
 -- CS-owned slot buttons. Names match GearSlots wire slots; globals are
 -- CrusaderStrike* so Character*Slot is never touched.
@@ -73,7 +83,11 @@ local SLOT_SIZE = 37
 local ICON_SIZE = 42
 local RESULT_ICON = 36
 local RESULT_GAP = 4
-local RESULT_COLS = 3
+local RESULT_STRIDE = RESULT_ICON + RESULT_GAP
+-- Fill the pop-out's inner width. A fixed 3-column grid left a gap and
+-- looked detached from the pane.
+local RESULT_COLS = math.max(1, math.floor((UI.POPOUT_INNER + RESULT_GAP) / RESULT_STRIDE))
+UI.RESULT_COLS = RESULT_COLS
 local DUNGEON_LIST_ROWS = 40
 local SET_LIST_ROWS = 24
 local GEAR_SETS_ICON = "Interface\\Icons\\INV_Misc_Gear_01"
@@ -129,6 +143,7 @@ local SLOT_LABEL = {
 local state = {
   active = false,
   view = "sets",
+  popout = true,
   activeSlot = nil,
   localId = nil,
   previewSlots = {},
@@ -141,6 +156,7 @@ local state = {
 
 local csToggle
 local root
+local popout
 local dollFrame
 local topSetsBtn
 local topBrowserBtn
@@ -334,9 +350,17 @@ local function mark_icon(btn, selected)
 end
 
 local function refresh_top_tabs()
-  mark_icon(topSetsBtn, state.view == "sets")
-  mark_icon(topBrowserBtn, state.view == "browser")
-  mark_icon(topStatsBtn, state.view == "stats")
+  local open = state.popout and true or false
+  mark_icon(topSetsBtn, open and state.view == "sets")
+  mark_icon(topBrowserBtn, open and state.view == "browser")
+  mark_icon(topStatsBtn, open and state.view == "stats")
+  if popout then
+    if open then
+      popout:Show()
+    else
+      popout:Hide()
+    end
+  end
   local function show_panel(panel, want)
     if not panel then
       return
@@ -349,9 +373,11 @@ local function refresh_top_tabs()
       panel:Hide()
     end
   end
-  show_panel(setsPanel, state.view == "sets")
-  show_panel(browserPanel, state.view == "browser")
-  show_panel(statsPanel, state.view == "stats")
+  -- Panels live inside the pop-out. Hiding them (not only the host) keeps
+  -- sets/browser/stats from drawing on the doll when the pane is closed.
+  show_panel(setsPanel, open and state.view == "sets")
+  show_panel(browserPanel, open and state.view == "browser")
+  show_panel(statsPanel, open and state.view == "stats")
 end
 
 local refresh_browser
@@ -364,6 +390,7 @@ local function show_view(view)
   else
     state.view = "sets"
   end
+  state.popout = true
   refresh_top_tabs()
   if refresh_browser then
     refresh_browser()
@@ -371,6 +398,19 @@ local function show_view(view)
   if refresh_stats then
     refresh_stats()
   end
+end
+
+-- Sidebar toggle: switch pane, or close the pop-out when that pane is already open.
+function UI.TogglePane(view)
+  if view ~= "browser" and view ~= "stats" then
+    view = "sets"
+  end
+  if state.popout and state.view == view then
+    state.popout = false
+    refresh_top_tabs()
+    return
+  end
+  show_view(view)
 end
 
 local function saved_lists()
@@ -641,6 +681,7 @@ function UI.GetPreview()
     slots = state.previewSlots,
     filled = state.filled,
     view = state.view,
+    popout = state.popout and true or false,
     gearSlot = state.gearSlot,
     instanceId = state.instanceId,
     pending = state.pending,
@@ -663,6 +704,7 @@ function UI.OnGearSlot(slotName, button)
   state.activeSlot = slotName
   state.gearSlot = slotName
   state.view = "browser"
+  state.popout = true
   refresh_all()
   local label = SLOT_LABEL[slotName] or slotName
   set_status("Select a " .. label .. " item from the browser (left-click to equip).")
@@ -875,6 +917,9 @@ local function add_icon_button(parent, name, texture, tooltip)
     btn._csGlow = glow
   end
   bind_icon_tooltip(btn, tooltip)
+  if btn.Show then
+    btn:Show()
+  end
   return btn
 end
 
@@ -934,7 +979,7 @@ end
 
 local function build_doll(parent)
   dollFrame = CreateFrame("Frame", "CrusaderStrikeGearDoll", parent, "BackdropTemplate")
-  dollFrame:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, -(TITLE_BAR + 4))
+  dollFrame:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, DOLL_TOP)
   dollFrame:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 8, 10)
   dollFrame:SetWidth(DOLL_WIDTH)
   if dollFrame.EnableMouse then
@@ -1177,48 +1222,59 @@ local function ensure_ui()
   end)
 
   build_doll(root)
+  if dollFrame and dollFrame.Show then
+    dollFrame:Show()
+  end
 
-  -- Three separate panes: Gear Sets / Browser / Stats. They live in this
-  -- window's right column, not on CharacterFrame.
+  -- Sidebar toggles stay on the main pane (PaperDoll sidebar tabs). They
+  -- share POPOUT_TOP with the pop-out so the strip lines up with the pane.
   local iconRow = CreateFrame("Frame", "CrusaderStrikeGearIconRow", root)
-  iconRow:SetHeight(46)
-  iconRow:SetPoint("TOPLEFT", root, "TOPLEFT", 8 + DOLL_WIDTH + 8, -6)
-  iconRow:SetPoint("TOPRIGHT", root, "TOPRIGHT", -80, -6)
+  iconRow:SetSize((ICON_SIZE * 3) + 8, ICON_SIZE)
+  iconRow:SetPoint("TOPLEFT", root, "TOPLEFT", 8, UI.POPOUT_TOP)
   if iconRow.EnableMouse then
     iconRow:EnableMouse(false)
   end
   if iconRow.SetFrameLevel then
     iconRow:SetFrameLevel(40)
   end
+  if iconRow.Show then
+    iconRow:Show()
+  end
 
   topSetsBtn = add_icon_button(iconRow, "CrusaderStrikeGearSetsIcon", GEAR_SETS_ICON, "Gear Sets")
   topSetsBtn:SetPoint("LEFT", iconRow, "LEFT", 0, 0)
   topSetsBtn:SetScript("OnClick", function()
-    show_view("sets")
+    UI.TogglePane("sets")
   end)
 
   topBrowserBtn = add_icon_button(iconRow, "CrusaderStrikeGearBrowserIcon", BROWSER_ICON, "Browser")
   topBrowserBtn:SetPoint("LEFT", topSetsBtn, "RIGHT", 4, 0)
   topBrowserBtn:SetScript("OnClick", function()
-    show_view("browser")
+    UI.TogglePane("browser")
   end)
 
   topStatsBtn = add_icon_button(iconRow, "CrusaderStrikeGearStatsIcon", STATS_ICON, "Stats")
   topStatsBtn:SetPoint("LEFT", topBrowserBtn, "RIGHT", 4, 0)
   topStatsBtn:SetScript("OnClick", function()
-    show_view("stats")
+    UI.TogglePane("stats")
   end)
 
-  local rightHost = CreateFrame("Frame", "CrusaderStrikeGearRightHost", root)
-  rightHost:SetPoint("TOPLEFT", root, "TOPLEFT", 8 + DOLL_WIDTH + 8, -(TITLE_BAR + 8))
-  rightHost:SetPoint("BOTTOMRIGHT", root, "BOTTOMRIGHT", -10, 10)
-  if rightHost.EnableMouse then
-    rightHost:EnableMouse(true)
+  -- Pop-out is a sibling region on the main frame's right edge, not a
+  -- column painted inside the doll at a fixed offset.
+  popout = CreateFrame("Frame", "CrusaderStrikeGearPopout", root, "BackdropTemplate")
+  popout:SetWidth(UI.POPOUT_WIDTH)
+  popout:SetPoint("TOPLEFT", root, "TOPRIGHT", -6, UI.POPOUT_TOP)
+  popout:SetPoint("BOTTOMLEFT", root, "BOTTOMRIGHT", -6, 10)
+  if popout.EnableMouse then
+    popout:EnableMouse(true)
+  end
+  if popout.SetFrameLevel then
+    popout:SetFrameLevel(30)
   end
 
   -- Pane 1: Gear Sets list
-  setsPanel = CreateFrame("Frame", "CrusaderStrikeGearSetsPanel", rightHost, "BackdropTemplate")
-  setsPanel:SetAllPoints(rightHost)
+  setsPanel = CreateFrame("Frame", "CrusaderStrikeGearSetsPanel", popout, "BackdropTemplate")
+  setsPanel:SetAllPoints(popout)
   apply_backdrop(setsPanel)
   add_text(setsPanel, "GameFontNormal", "Gear Sets", 8, -8)
   setsEmpty = add_text(
@@ -1229,20 +1285,20 @@ local function ensure_ui()
     -28
   )
   if setsEmpty.SetWidth then
-    setsEmpty:SetWidth(240)
+    setsEmpty:SetWidth(UI.POPOUT_INNER)
   end
 
   local setsScroll = CreateFrame("ScrollFrame", "CrusaderStrikeGearSetsScroll", setsPanel, "UIPanelScrollFrameTemplate")
-  setsScroll:SetPoint("TOPLEFT", setsPanel, "TOPLEFT", 8, -70)
-  setsScroll:SetPoint("BOTTOMRIGHT", setsPanel, "BOTTOMRIGHT", -28, 40)
+  setsScroll:SetPoint("TOPLEFT", setsPanel, "TOPLEFT", UI.POPOUT_INSET, -70)
+  setsScroll:SetPoint("BOTTOMRIGHT", setsPanel, "BOTTOMRIGHT", -(UI.POPOUT_SCROLLBAR + 2), 40)
   local setsChild = CreateFrame("Frame", "CrusaderStrikeGearSetsListChild", setsScroll)
-  setsChild:SetSize(220, SET_LIST_ROWS * 24)
+  setsChild:SetSize(UI.POPOUT_INNER, SET_LIST_ROWS * 24)
   if setsScroll.SetScrollChild then
     setsScroll:SetScrollChild(setsChild)
   end
   for i = 1, SET_LIST_ROWS do
     local btn = CreateFrame("Button", nil, setsChild, "UIPanelButtonTemplate")
-    btn:SetSize(210, 22)
+    btn:SetSize(UI.POPOUT_INNER, 22)
     btn:SetPoint("TOPLEFT", setsChild, "TOPLEFT", 0, -((i - 1) * 24))
     btn:Hide()
     btn:SetScript("OnClick", function(self)
@@ -1272,8 +1328,8 @@ local function ensure_ui()
   end)
 
   -- Pane 2: Gear Browser
-  browserPanel = CreateFrame("Frame", "CrusaderStrikeGearBrowserPanel", rightHost, "BackdropTemplate")
-  browserPanel:SetAllPoints(rightHost)
+  browserPanel = CreateFrame("Frame", "CrusaderStrikeGearBrowserPanel", popout, "BackdropTemplate")
+  browserPanel:SetAllPoints(popout)
   if browserPanel.EnableMouse then
     browserPanel:EnableMouse(true)
   end
@@ -1293,13 +1349,13 @@ local function ensure_ui()
   listScroll:SetPoint("TOPLEFT", listFrame, "TOPLEFT", 4, -4)
   listScroll:SetPoint("BOTTOMRIGHT", listFrame, "BOTTOMRIGHT", -22, 4)
   dungeonListChild = CreateFrame("Frame", "CrusaderStrikeGearDungeonListChild", listScroll)
-  dungeonListChild:SetSize(160, 18 * DUNGEON_LIST_ROWS)
+  dungeonListChild:SetSize(UI.POPOUT_INNER, 18 * DUNGEON_LIST_ROWS)
   if listScroll.SetScrollChild then
     listScroll:SetScrollChild(dungeonListChild)
   end
   for i = 1, DUNGEON_LIST_ROWS do
     local row = CreateFrame("Button", nil, dungeonListChild)
-    row:SetSize(150, 16)
+    row:SetSize(UI.POPOUT_INNER, 16)
     row:SetPoint("TOPLEFT", dungeonListChild, "TOPLEFT", 0, -((i - 1) * 18))
     row:Hide()
     row._isListRow = true
@@ -1320,14 +1376,15 @@ local function ensure_ui()
     dungeonListRows[i] = row
   end
 
-  -- Search sits on its own row under the dungeon list (was overlapping the label at absolute y).
+  -- Search matches the dungeon list width (the pop-out's content width).
+  -- A second anchor with a different Y was stretching the box off the list.
   local searchLabel = add_text(browserPanel, "GameFontHighlightSmall", "Name or item ID", 8, -128)
   searchLabel:ClearAllPoints()
-  searchLabel:SetPoint("TOPLEFT", listFrame, "BOTTOMLEFT", 0, -8)
+  searchLabel:SetPoint("TOPLEFT", listFrame, "BOTTOMLEFT", 0, -4)
 
   searchBox = CreateFrame("EditBox", "CrusaderStrikeGearSearch", browserPanel, "InputBoxTemplate")
   searchBox:SetHeight(20)
-  searchBox:SetPoint("TOPLEFT", searchLabel, "BOTTOMLEFT", 2, -4)
+  searchBox:SetPoint("TOPLEFT", listFrame, "BOTTOMLEFT", 0, -22)
   searchBox:SetPoint("TOPRIGHT", listFrame, "BOTTOMRIGHT", 0, -22)
   searchBox:SetAutoFocus(false)
   if searchBox.SetMaxLetters then
@@ -1350,32 +1407,40 @@ local function ensure_ui()
     8,
     -162
   )
+  -- Status line is its own row so the count/empty text does not sit on the icons.
+  local statusLine = CreateFrame("Frame", "CrusaderStrikeGearBrowserStatus", browserPanel)
+  statusLine:SetHeight(16)
+  statusLine:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", 0, -4)
+  statusLine:SetPoint("TOPRIGHT", searchBox, "BOTTOMRIGHT", 0, -4)
+
   browserEmpty:ClearAllPoints()
-  browserEmpty:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", -2, -6)
-  browserEmpty:SetPoint("TOPRIGHT", searchBox, "BOTTOMRIGHT", 0, -6)
+  browserEmpty:SetPoint("LEFT", statusLine, "LEFT", 0, 0)
+  browserEmpty:SetPoint("RIGHT", statusLine, "RIGHT", 0, 0)
   if browserEmpty.SetWidth then
-    -- width follows anchors when available; keep a fallback for mocks
-    browserEmpty:SetWidth(200)
+    browserEmpty:SetWidth(UI.POPOUT_INNER)
   end
 
   browserMore = add_text(browserPanel, "GameFontDisableSmall", "", 8, -180)
   browserMore:ClearAllPoints()
-  browserMore:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", -2, -6)
+  browserMore:SetPoint("LEFT", statusLine, "LEFT", 0, 0)
+  browserMore:SetPoint("RIGHT", statusLine, "RIGHT", 0, 0)
   browserMore:Hide()
 
   -- Scrollable result grid — every matching item is reachable (no hard 8-cap).
+  -- Bottom-right is the browser panel, so the grid tracks the pop-out.
   resultScroll = CreateFrame("ScrollFrame", "CrusaderStrikeGearResultScroll", browserPanel, "UIPanelScrollFrameTemplate")
-  resultScroll:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", -2, -24)
-  resultScroll:SetPoint("BOTTOMRIGHT", browserPanel, "BOTTOMRIGHT", -28, 8)
+  resultScroll:SetPoint("TOPLEFT", statusLine, "BOTTOMLEFT", 0, -4)
+  resultScroll:SetPoint("BOTTOMRIGHT", browserPanel, "BOTTOMRIGHT", -(UI.POPOUT_SCROLLBAR + 2), 8)
   resultChild = CreateFrame("Frame", "CrusaderStrikeGearResultChild", resultScroll)
-  resultChild:SetSize(RESULT_COLS * (RESULT_ICON + RESULT_GAP), RESULT_ICON + RESULT_GAP)
+  local gridWidth = RESULT_COLS * RESULT_ICON + math.max(0, RESULT_COLS - 1) * RESULT_GAP
+  resultChild:SetSize(gridWidth, RESULT_ICON + RESULT_GAP)
   if resultScroll.SetScrollChild then
     resultScroll:SetScrollChild(resultChild)
   end
 
   -- Pane 3: Stats
-  statsPanel = CreateFrame("Frame", "CrusaderStrikeGearStatsPanel", rightHost, "BackdropTemplate")
-  statsPanel:SetAllPoints(rightHost)
+  statsPanel = CreateFrame("Frame", "CrusaderStrikeGearStatsPanel", popout, "BackdropTemplate")
+  statsPanel:SetAllPoints(popout)
   if statsPanel.EnableMouse then
     statsPanel:EnableMouse(true)
   end
@@ -1383,7 +1448,10 @@ local function ensure_ui()
   statsPanel:Hide()
 
   statsHeader = add_text(statsPanel, "GameFontNormal", "Gear set stats", 10, -10)
-  add_text(statsPanel, "GameFontDisableSmall", "Totals update when gear-set slots are filled. Not live character stats.", 10, -28)
+  local statsHint = add_text(statsPanel, "GameFontDisableSmall", "Totals update when gear-set slots are filled. Not live character stats.", 10, -28)
+  if statsHint.SetWidth then
+    statsHint:SetWidth(UI.POPOUT_INNER)
+  end
   for i, label in ipairs(UI.STAT_LABELS) do
     statLines[i] = add_text(statsPanel, "GameFontHighlightSmall", label .. "  —", 10, -52 - ((i - 1) * 16))
   end
@@ -1395,7 +1463,7 @@ local function ensure_ui()
     -52 - (#UI.STAT_LABELS * 16) - 8
   )
   if statsFooter.SetWidth then
-    statsFooter:SetWidth(220)
+    statsFooter:SetWidth(UI.POPOUT_INNER)
   end
 
   show_view("sets")

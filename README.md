@@ -83,7 +83,7 @@ In-game UI to browse Forever dungeon loot and build a per-character wish list pe
 
 ## Character gear window (`/cs geartab`)
 
-Standalone Crusader Strike window (own size and chrome, parented to `UIParent`). It does not cover or restyle the Character / PaperDoll tab. Gear-set slots are CS-owned. Gear Sets, Browser, and Stats are panes inside the window. AtlasLoot Classic is a GPL-2.0 layout reference only — do not copy it wholesale. See [docs/character-gear-tab.md](docs/character-gear-tab.md).
+Standalone Crusader Strike window (own size and chrome, parented to `UIParent`). It does not cover or restyle the Character / PaperDoll tab. The left pane is the gear doll. Gear Sets, Browser, and Stats open in a right-side pop-out anchored to that window; closing the pop-out hides them. AtlasLoot Classic is a GPL-2.0 layout reference only — do not copy it wholesale. See [docs/character-gear-tab.md](docs/character-gear-tab.md).
 
 ## Develop / test
 

@@ -169,6 +169,7 @@ describe("character gear tab scaffold", function()
     eq(preview.activeSlot, "head")
     eq(preview.gearSlot, "head")
     eq(preview.view, "browser")
+    eq(preview.popout, true)
     ok(UI.EquipItem(272999))
     preview = UI.GetPreview()
     eq(preview.slots.head, 272999)
@@ -350,5 +351,118 @@ describe("character gear tab scaffold", function()
     eq(_G.CrusaderStrikeCharacterGearFrame:GetParent(), _G.UIParent)
     CrusaderStrike.Print = prevPrint
     _G.CharacterFrame = prev
+  end)
+
+  it("anchors the right pop-out to the main pane and hides it when closed", function()
+    local UI = CrusaderStrike.CharacterGearTab
+    local prevChar = _G.CharacterFrame
+    _G.CharacterFrame = {
+      ModeTabs = { Tabs = {} },
+      shown = true,
+      IsShown = function(self) return self.shown end,
+    }
+    UI.Show()
+
+    local root = _G.CrusaderStrikeCharacterGearFrame
+    local pop = _G.CrusaderStrikeGearPopout
+    ok(pop ~= nil)
+    eq(pop:GetParent(), root)
+    eq(pop._allPoints, nil)
+    eq(pop:GetWidth(), UI.POPOUT_WIDTH)
+    ok(root:GetWidth() < UI.POPOUT_WIDTH + 40)
+    local point, rel, relPoint, x, y = pop:GetPoint(1)
+    eq(point, "TOPLEFT")
+    eq(rel, root)
+    eq(relPoint, "TOPRIGHT")
+    ok(x <= 0 and x >= -16)
+    eq(y, UI.POPOUT_TOP)
+    local point2, rel2, relPoint2 = pop:GetPoint(2)
+    eq(point2, "BOTTOMLEFT")
+    eq(rel2, root)
+    eq(relPoint2, "BOTTOMRIGHT")
+
+    local sets = _G.CrusaderStrikeGearSetsPanel
+    local browser = _G.CrusaderStrikeGearBrowserPanel
+    local stats = _G.CrusaderStrikeGearStatsPanel
+    eq(sets:GetParent(), pop)
+    eq(browser:GetParent(), pop)
+    eq(stats:GetParent(), pop)
+    eq(sets._allPoints, pop)
+    eq(browser._allPoints, pop)
+    eq(stats._allPoints, pop)
+
+    -- Toggles stay on the main pane so closing the pop-out does not remove them.
+    eq(_G.CrusaderStrikeGearIconRow:GetParent(), root)
+    eq(_G.CrusaderStrikeGearSetsIcon:GetParent():GetParent(), root)
+    eq(_G.CrusaderStrikeGearDoll:GetParent(), root)
+
+    local list = _G.CrusaderStrikeGearDungeonList
+    eq(list:GetParent(), browser)
+    local lp, lrel, lrp = list:GetPoint(1)
+    eq(lp, "TOPLEFT")
+    eq(lrel, browser)
+    eq(lrp, "TOPLEFT")
+    local lp2, lrel2, lrp2 = list:GetPoint(2)
+    eq(lp2, "TOPRIGHT")
+    eq(lrel2, browser)
+    eq(lrp2, "TOPRIGHT")
+
+    local search = _G.CrusaderStrikeGearSearch
+    eq(search:GetParent(), browser)
+    local _, srel = search:GetPoint(1)
+    eq(srel, list)
+    local sp2, srel2 = search:GetPoint(2)
+    eq(sp2, "TOPRIGHT")
+    eq(srel2, list)
+
+    local scroll = _G.CrusaderStrikeGearResultScroll
+    eq(scroll:GetParent(), browser)
+    local rp, rrel, rrp = scroll:GetPoint(scroll:GetNumPoints())
+    eq(rp, "BOTTOMRIGHT")
+    eq(rrel, browser)
+    eq(rrp, "BOTTOMRIGHT")
+    eq(scroll:GetParent() == root, false)
+    eq(list:GetParent() == root, false)
+    eq(search:GetParent() == root, false)
+
+    eq(_G.CrusaderStrikeGearDungeonListChild:GetWidth(), UI.POPOUT_INNER)
+    ok(UI.RESULT_COLS >= 4)
+    local grid = UI.RESULT_COLS * 36 + (UI.RESULT_COLS - 1) * 4
+    ok(grid <= UI.POPOUT_INNER)
+
+    local preview = UI.GetPreview()
+    if not preview.popout or preview.view ~= "browser" then
+      UI.TogglePane("browser")
+    end
+    eq(UI.GetPreview().popout, true)
+    eq(UI.GetPreview().view, "browser")
+    ok(pop:IsShown())
+    ok(browser:IsShown())
+    eq(sets:IsShown(), false)
+    eq(stats:IsShown(), false)
+
+    -- Same toggle again closes the pop-out and every pane inside it.
+    _G.CrusaderStrikeGearBrowserIcon:GetScript("OnClick")(_G.CrusaderStrikeGearBrowserIcon)
+    eq(UI.GetPreview().popout, false)
+    eq(pop:IsShown(), false)
+    eq(sets:IsShown(), false)
+    eq(browser:IsShown(), false)
+    eq(stats:IsShown(), false)
+    ok(root:IsShown())
+    ok(_G.CrusaderStrikeGearDoll:IsShown())
+    ok(_G.CrusaderStrikeGearSetsIcon:IsShown())
+    ok(_G.CrusaderStrikeGearBrowserIcon:IsShown())
+    ok(_G.CrusaderStrikeGearStatsIcon:IsShown())
+
+    -- Re-open stats from the main-pane toggle. Content is the stats panel only.
+    UI.TogglePane("stats")
+    eq(UI.GetPreview().popout, true)
+    eq(UI.GetPreview().view, "stats")
+    ok(pop:IsShown())
+    ok(stats:IsShown())
+    eq(browser:IsShown(), false)
+    eq(sets:IsShown(), false)
+
+    _G.CharacterFrame = prevChar
   end)
 end)

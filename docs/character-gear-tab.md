@@ -35,10 +35,17 @@ launcher chrome only.
   or `OnHide`. The CS window is a `HIGH` strata frame centered on `UIParent`
   (offset so it is not stacked on the character sheet), titled "Crusader
   Strike", movable, and closed with the Close button or Escape.
-- Inside the CS window, **Gear Sets**, **Browser**, and **Stats** are three
-  separate panes in the right column, switched by 42px header icons
-  (`INV_Misc_Gear_01`, `INV_Misc_Bag_08`, `INV_Misc_Note_01`). Names are
-  tooltips. The left column is the CS gear-set doll.
+- The left pane is the CS gear-set doll. **Gear Sets**, **Browser**, and
+  **Stats** are a right-side pop-out (`CrusaderStrikeGearPopout`), the same
+  arrangement as PaperDoll stats / equipment manager / titles: main pane on
+  the left, pane attached to the frame's right edge. 42px icons on the main
+  pane (`INV_Misc_Gear_01`, `INV_Misc_Bag_08`, `INV_Misc_Note_01`) toggle it.
+  Names are tooltips. Clicking the open pane's icon closes the pop-out and
+  hides all three panels so nothing draws on the doll.
+- Pop-out content is anchored to the pop-out (dungeon list stretches to the
+  browser panel, search matches the list width, the result grid fills the
+  pane's inner width). It is not positioned with a fixed offset inside the
+  doll.
 - Gear-set slots are **CS-owned buttons** (`CrusaderStrikeHeadSlot` …
   `CrusaderStrikeTabardSlot` on `CrusaderStrikeGearDoll`). They never share
   frames or scripts with `CharacterHeadSlot` / PaperDoll. Left-click selects
@@ -55,10 +62,11 @@ launcher chrome only.
 - The dungeon control is a **scrollable list** of dungeon names (All + every
   indexed dungeon) — not a cycling button or a menu of `UIPanelButtonTemplate`
   options. Name / item-ID search stays.
-- Browser layout chains off the dungeon list (stretch width, no fixed
-  220px box): search under the list, then a **scrollable 3-column icon
-  grid** (`CrusaderStrikeGearResultScroll`). There is no hard 8-row cap;
-  every matching Forever-overlay item is reachable.
+- Browser layout chains off the dungeon list, which stretches to the pop-out:
+  search matches that width, a status line sits under the search, then a
+  **scrollable icon grid** (`CrusaderStrikeGearResultScroll`) whose column
+  count fills the pop-out inner width. There is no hard 8-row cap; every
+  matching Forever-overlay item is reachable.
 - Stats pane shows classic stat name placeholders and a filled-slot count.
   Totals are not computed yet.
 

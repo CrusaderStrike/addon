@@ -9,6 +9,7 @@ All notable changes to CrusaderStrike (World of Warcraft: Forever only).
 
 ### Fixed
 - **Character gear window:** Gear Sets, Browser, and Stats are separate panes. Dungeon list covers every indexed Forever dungeon. Results are item icons with `SetItemByID` tooltips. Left-click equips into the current gear set; right-click a CS slot unequips. Create gear set saves a real set. CharacterFrame is not opened with `ShowUIPanel` / `Show` / `RefreshDisplay`.
+- **Gear pop-out alignment:** Gear Sets, Browser, and Stats are a right-side pop-out anchored to the CS window (main doll on the left). Browser content is anchored to that pane. Closing the pop-out hides all three panels.
 
 ## 0.3.5 (WoW Forever)
 
