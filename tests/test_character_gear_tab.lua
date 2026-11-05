@@ -91,7 +91,10 @@ describe("character gear tab scaffold", function()
     ok(toggle ~= nil)
     ok(toggle._csOwnedToggle)
     eq(toggle._csIcon, "Interface\\AddOns\\CrusaderStrike\\assets\\logo.tga")
-    eq(toggle._parent, _G.CharacterFrame)
+    ok(toggle._csGearTab)
+    -- Parented to ModeTabs for side-tab chrome; Tabs table stays untouched.
+    eq(toggle._parent, _G.CharacterFrame.ModeTabs)
+    eq(toggle._template, "CharacterFrameModeSideTabTemplate")
 
     -- Blizzard CharacterHeadSlot is never hooked or replaced.
     eq(_G.CharacterHeadSlot, head)

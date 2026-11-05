@@ -2,13 +2,14 @@
 --
 -- Completely separate from the Forever Character / PaperDoll tab:
 --   * CS-owned slot buttons (CrusaderStrikeHeadSlot …), never Character*Slot
---   * No ModeTabs.Tabs injection, no CharacterFrameModeSideTabTemplate
+--   * Side-tab chrome via CharacterFrameModeSideTabTemplate, parented to
+--     ModeTabs for look — but NEVER appended to ModeTabs.Tabs (no injection)
 --   * No hooksecurefunc on ShowSubFrame / OnShow / OnHide
 --   * No SetScript swaps on Blizzard paper-doll buttons
 --   * No programmatic SecureActionButton:Click / ShowUIPanel / RefreshDisplay
 --
 -- Entry: /cs geartab while CharacterFrame is already open, or the CS-owned
--- toggle parented to CharacterFrame (outside ModeTabs).
+-- side-tab toggle (logo) under the Forever mode-tab strip.
 --
 -- Inside the CS frame: Gear Sets, Gear Browser, and Stats are separate panes.
 -- Left-click a browser item to equip it into the current gear set; right-click
@@ -974,28 +975,60 @@ local function build_doll(parent)
   set_status("Left-click browser to equip. Right-click a slot to unequip.")
 end
 
+local function refresh_toggle_checked()
+  if not csToggle then
+    return
+  end
+  if csToggle.SetChecked then
+    csToggle:SetChecked(state.active and true or false)
+  end
+end
+
 local function ensure_toggle(cf)
   if csToggle or not cf then
     return
   end
-  -- Parent to CharacterFrame but NEVER insert into ModeTabs.Tabs and never use
-  -- CharacterFrameModeSideTabTemplate.
-  csToggle = CreateFrame("Button", "CrusaderStrikeGearTabToggle", cf)
-  csToggle:SetSize(ICON_SIZE, ICON_SIZE)
-  -- Forever ModeTabs is a vertical side strip; last tab is at the bottom.
-  -- Anchor BELOW ModeTabs so CS sits with the other character tabs (not above them at the top).
   local modeTabs = cf.ModeTabs
-  if modeTabs and csToggle.SetPoint then
-    csToggle:SetPoint("TOPLEFT", modeTabs, "BOTTOMLEFT", 0, -4)
-  elseif csToggle.SetPoint then
-    csToggle:SetPoint("BOTTOMLEFT", cf, "BOTTOMLEFT", 8, 8)
+  local tabs = modeTabs and modeTabs.Tabs
+  local parent = modeTabs or cf
+
+  -- Visual integration: Forever side-tab template parented to ModeTabs so the
+  -- logo sits in the strip chrome. Do NOT append to ModeTabs.Tabs (that injection
+  -- is what tainted Character open earlier).
+  local ok, tab = pcall(
+    CreateFrame,
+    "CheckButton",
+    "CrusaderStrikeGearTabToggle",
+    parent,
+    "CharacterFrameModeSideTabTemplate"
+  )
+  if not ok or not tab then
+    ok, tab = pcall(
+      CreateFrame,
+      "Button",
+      "CrusaderStrikeGearTabToggle",
+      parent,
+      "CharacterFrameModeSideTabTemplate"
+    )
   end
-  if csToggle.SetFrameLevel then
-    csToggle:SetFrameLevel(50)
+  if not ok or not tab then
+    tab = CreateFrame("Button", "CrusaderStrikeGearTabToggle", parent)
+    if tab.SetSize then
+      tab:SetSize(ICON_SIZE, ICON_SIZE)
+    end
   end
-  csToggle._csIcon = CS_LOGO
+  csToggle = tab
   csToggle._csOwnedToggle = true
-  if csToggle.CreateTexture then
+  csToggle._csGearTab = true
+  csToggle._csIcon = CS_LOGO
+  csToggle.tooltipText = "Crusader Strike"
+
+  -- Apply logo into the template icon slot when present.
+  if csToggle.Icon and csToggle.Icon.SetTexture then
+    csToggle.Icon:SetTexture(CS_LOGO)
+  elseif csToggle.icon and csToggle.icon.SetTexture then
+    csToggle.icon:SetTexture(CS_LOGO)
+  elseif csToggle.CreateTexture then
     local icon = csToggle:CreateTexture(nil, "ARTWORK")
     if icon.SetAllPoints then
       icon:SetAllPoints()
@@ -1005,14 +1038,45 @@ local function ensure_toggle(cf)
     end
     csToggle.icon = icon
   end
-  bind_icon_tooltip(csToggle, "Crusader Strike")
-  csToggle:SetScript("OnClick", function()
+
+  if csToggle.ClearAllPoints then
+    csToggle:ClearAllPoints()
+  end
+  local last
+  if type(tabs) == "table" then
+    for _, t in ipairs(tabs) do
+      last = t
+    end
+  end
+  if csToggle.SetPoint then
+    if last and (not last.IsShown or last:IsShown()) then
+      -- Sit under the last Forever mode tab (bottom of the strip).
+      csToggle:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -2)
+    elseif modeTabs then
+      csToggle:SetPoint("TOPLEFT", modeTabs, "BOTTOMLEFT", 0, -4)
+    else
+      csToggle:SetPoint("BOTTOMLEFT", cf, "BOTTOMLEFT", 8, 8)
+    end
+  end
+
+  local function on_toggle()
     if state.active then
       UI.Leave()
     else
       UI.Enter()
     end
-  end)
+  end
+  if csToggle.SetCustomOnMouseUpHandler then
+    csToggle:SetCustomOnMouseUpHandler(function(_, button, upInside)
+      if button == "LeftButton" and (upInside == nil or upInside) then
+        on_toggle()
+      end
+    end)
+  else
+    csToggle:SetScript("OnClick", on_toggle)
+  end
+  bind_icon_tooltip(csToggle, "Crusader Strike")
+  refresh_toggle_checked()
   if csToggle.Show then
     csToggle:Show()
   end
@@ -1268,6 +1332,7 @@ function UI.Leave()
     return
   end
   state.active = false
+  refresh_toggle_checked()
   if root and root.IsShown and root:IsShown() then
     root:Hide()
   end
@@ -1284,10 +1349,11 @@ function UI.Enter()
     end
     return
   end
-  -- CS-owned frames only. Never mutate Blizzard PaperDoll or ModeTabs.
+  -- CS-owned frames only. Never mutate Blizzard PaperDoll or ModeTabs.Tabs.
   state.active = true
   ensure_toggle(cf)
   ensure_ui()
+  refresh_toggle_checked()
   if root then
     root:Show()
   end

@@ -16,16 +16,16 @@ Forever 1.60.1 uses the Camelot character frame
 (`Blizzard_UIPanels_Game/Camelot/CharacterFrame.lua` in the Forever UI source).
 Mode tabs are the vertical side tabs `CharacterFrameModeTab1`–`6`
 (Character, Reputation, Skills, PvP, Currency, Statistics). **This addon does
-not append a seventh ModeTabs entry** and does not use
-`CharacterFrameModeSideTabTemplate`.
+not append a seventh ModeTabs.Tabs entry** (that injection caused Character
+open taint). It **does** reuse `CharacterFrameModeSideTabTemplate` for chrome.
 
 Instead:
 
-- A CS-owned toggle (`CrusaderStrikeGearTabToggle`) is parented to
-  `CharacterFrame` **outside** `ModeTabs.Tabs`, anchored
-  `TOPLEFT` → `ModeTabs` `BOTTOMLEFT` (4px gap) so it sits **below** the
-  vertical side strip with the other character tabs — not above them at the
-  top. It uses the Crusader Strike logo (`assets/logo.tga`).
+- A CS-owned toggle (`CrusaderStrikeGearTabToggle`) is parented to `ModeTabs`
+  with `CharacterFrameModeSideTabTemplate`, anchored under the last Forever
+  side tab (`TOPLEFT` → last tab `BOTTOMLEFT`, 2px gap) so the logo sits in
+  the strip like the other character tabs. The Tabs table is never mutated.
+  Logo: `assets/logo.tga`.
 - `/cs geartab` (or that toggle) opens `CrusaderStrikeCharacterGearFrame` only
   when `CharacterFrame` is **already** shown by a real user open. CS never
   calls `ShowUIPanel`, `CharacterFrame:Show`, `ShowSubFrame`,
