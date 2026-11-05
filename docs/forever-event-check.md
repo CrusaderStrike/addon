@@ -1,26 +1,28 @@
 # Forever in-game event check (dungeon detection)
 
-WoW Forever **1.60.1** protects combat-log reads (`CombatLogGetCurrentEventInfo` is
-absent from the Forever global API / relocated to the secure environment). Dungeon
-boss kills and party deaths therefore use non-CLEU signals. This checklist is for
-Drew (or anyone with the Forever client) to confirm the rework in a real dungeon.
+WoW Forever **1.60.1** blocks addon use of the combat log. Registering
+`COMBAT_LOG_EVENT_UNFILTERED` or calling `CombatLogGetCurrentEventInfo` raises
+`ADDON_ACTION_BLOCKED` ("Crusader Strike has been blocked from an action only available
+to the Blizzard UI"). **`pcall` does not prevent that popup.** This addon therefore
+never registers CLEU and never calls combat-log APIs. Boss kills and party deaths use
+only the non-CLEU signals below.
 
-Related: groomed P0 ticket `addon-dungeon-combatlog.md`; Drew follow-up ticket
-(SnipyWoW) for the live check.
+Related: groomed P0 tickets `addon-dungeon-combatlog.md` and `addon-p0-remove-cleu.md`
+(in-game popup follow-up).
 
 ## Install
 
 1. Copy this addon into `Interface/AddOns/CrusaderStrike` (or your usual Forever AddOns path).
 2. Confirm TOC `## Interface: 16001` and `## AllowLoadGameType: forever, camelot`.
-3. Log in on Forever 1.60.1. `/cs status` should print without errors; the chat should
-   **not** show "action blocked" / taint from CrusaderStrike.
+3. Log in on Forever 1.60.1. `/reload`, then confirm there is **no** "action blocked" /
+   Blizzard-UI popup from Crusader Strike. `/cs status` should print without errors.
 
 ## Capture events
 
 1. Enter a 5-player dungeon with at least one other party member if you can.
 2. Run: `/cs debug events on`
-3. Pull and kill at least one boss (ideally the final boss too).
-4. Have a party member die once, release spirit, and resurrect (or rez in place).
+3. Pull and kill at least one boss (ideally the final boss too). Confirm the kill is logged.
+4. Have a party member die once, release spirit, and resurrect (or rez in place). Confirm the death is logged once.
 5. Optionally wipe on a boss (to confirm wipes are **not** counted as kills).
 6. Run: `/cs debug events dump`
 7. Screenshot or copy the dump lines, plus `/cs status` and `/cs export` for the run.
@@ -37,7 +39,8 @@ From the dump, note whether each of these fired and with what args:
 | `UNIT_HEALTH` / `UNIT_FLAGS` on `bossN` | Fallback kill when a boss unit goes dead |
 | `PLAYER_DEAD` | Player death (may fire twice — should count once) |
 | `UNIT_HEALTH` / `UNIT_FLAGS` on `partyN` | Party deaths without CLEU |
-| `COMBAT_LOG_EVENT_UNFILTERED` | Debug only: whether it fired, and `cleu=false` / `missing` / error |
+
+`COMBAT_LOG_EVENT_UNFILTERED` must **not** appear (the addon does not register it).
 
 Also confirm in `/cs status` / export:
 

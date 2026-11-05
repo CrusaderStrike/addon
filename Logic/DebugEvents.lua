@@ -91,7 +91,6 @@ function DE.Summarize(limit)
     if a.npcId then detail[#detail + 1] = "npc=" .. tostring(a.npcId) end
     if a.name then detail[#detail + 1] = tostring(a.name) end
     if a.unit then detail[#detail + 1] = tostring(a.unit) end
-    if a.cleuCallable ~= nil then detail[#detail + 1] = "cleu=" .. tostring(a.cleuCallable) end
     if a.detail then detail[#detail + 1] = tostring(a.detail) end
     if a.subevent then detail[#detail + 1] = tostring(a.subevent) end
     lines[#lines + 1] = string.format("%d %s %s", e.t or 0, e.event or "?", table.concat(detail, " "))

@@ -163,7 +163,7 @@ Checked against Ketho/BlizzardInterfaceResources branch `forever` (`Resources/Gl
 - **Not in Forever (mismatch with ticket A wording):**
   - `GetBattlefieldScore` is absent; the scoreboard is read with `C_PvP.GetScoreInfo*` (PVPScoreInfo: https://warcraft.wiki.gg/wiki/Structure_PVPScoreInfo).
   - Global `GetZonePVPInfo` is absent; `C_PvP.GetZonePVPInfo` is used.
-  - `CombatLogGetCurrentEventInfo` is absent from the Forever global API. It was deprecated in 12.0 (https://warcraft.wiki.gg/wiki/API_CombatLogGetCurrentEventInfo); the Forever deprecation shim maps it to `C_CombatLog.GetCurrentEventInfo`, which "has been relocated to the secure environment" (https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_DeprecatedCombatLog/Deprecated_CombatLog.lua) and is not in GlobalAPI. `COMBAT_LOG_EVENT_UNFILTERED` still fires but its payload can't be read. PvpLog only uses the combat log behind a `pcall` capability check. DungeonLog no longer depends on CLEU reads; see "Dungeon detection without combat log" below.
+  - `CombatLogGetCurrentEventInfo` is absent from the Forever global API. It was deprecated in 12.0 (https://warcraft.wiki.gg/wiki/API_CombatLogGetCurrentEventInfo); the Forever deprecation shim maps it to `C_CombatLog.GetCurrentEventInfo`, which "has been relocated to the secure environment" (https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_DeprecatedCombatLog/Deprecated_CombatLog.lua) and is not in GlobalAPI. `COMBAT_LOG_EVENT_UNFILTERED` still fires but its payload can't be read. Neither PvpLog nor DungeonLog registers CLEU or calls CombatLogGetCurrentEventInfo; see "Dungeon detection without combat log" below.
 - **Verified: `PVPScoreInfo.honorGained`** (plus `killingBlows`, `honorableKills`, `deaths`) in Forever's generated API docs: https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_APIDocumentationGenerated/PvpInfoDocumentation.lua (`PVPScoreInfo` struct).
 - TODO(unverified): whether `PLAYER_PVP_KILLS_CHANGED`'s `unitTarget` still resolves to the victim after it dies in Forever (Warcraft Wiki lists the event for mainline and classic game types, not `forever` explicitly: https://warcraft.wiki.gg/wiki/PLAYER_PVP_KILLS_CHANGED). If it doesn't, opponent fields are null and the kill is still counted.
 
@@ -189,7 +189,7 @@ available to addons:
 | `INSTANCE_ENCOUNTER_ENGAGE_UNIT` | Fallback: refresh `boss1`–`boss5` tokens | Ketho forever Events.lua |
 | `UNIT_HEALTH` / `UNIT_FLAGS` | Fallback boss UnitIsDead; party death edges | Ketho forever Events.lua |
 | `PLAYER_DEAD` | Player death (debounce: Forever may double-fire — forever-lint FL013) | Ketho forever Events.lua |
-| `COMBAT_LOG_EVENT_UNFILTERED` | **Debug probe only** (pcall register + pcall read); never drives kills/deaths | Ketho forever Events.lua lists it; payload unreadable |
+| `COMBAT_LOG_EVENT_UNFILTERED` | **Not used** — register or read triggers ADDON_ACTION_BLOCKED (pcall does not help) | Ketho forever Events.lua lists it; Forever protects it for Blizzard UI only |
 
 ### EncounterID → NPC mapping
 
