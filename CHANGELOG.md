@@ -4,6 +4,10 @@ All notable changes to CrusaderStrike (World of Warcraft: Forever only).
 
 ## Unreleased
 
+## 0.3.3
+
+- Release for #26 morning check: includes #41 gear-sets harden (#42) and #39 legacy Option A removal (#40). No schema change.
+
 ### Added
 - **Gear-sets harden for #26 morning check (#41):** true CSGEAR1 E2E round-trip tests (export → web id assign → re-import, `local_id→id`); Forever `CreateDefaults` / `AllowedSetTypes` for under-60 leveling+max_level dropdown; companion sync `BeginSync` / `FailSync` / `CompleteSync` with player-visible messages for API down and session/token expiry (pending_ops kept, syncing cleared — no silent stuck state).
 
