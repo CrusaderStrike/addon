@@ -1,13 +1,13 @@
 --[[
   World PvP + battleground capture (WoW Forever only). Event glue over Logic/PvpHistory.lua.
 
-  Forever 1.60.1 is built on the 12.x client. CombatLogGetCurrentEventInfo /
-  C_CombatLog.GetCurrentEventInfo are NOT in the Forever global API for addons
-  (moved to the secure environment in 12.0; see docs/sources.md). So:
+  Forever 1.60.1 (12.x): the combat log is never used. Registering
+  COMBAT_LOG_EVENT_UNFILTERED or calling CombatLogGetCurrentEventInfo triggers
+  ADDON_ACTION_BLOCKED (pcall does not suppress the popup). So:
     * honorable kills come from PLAYER_PVP_KILLS_CHANGED (unitTarget payload);
-    * pet-only kill exclusion and the killer on death use the
-      combat log ONLY when CombatLogGetCurrentEventInfo is callable (pcall), and
-      otherwise degrade gracefully (HK credit = "kill", killer from target).
+    * pet-only kills cannot be excluded;
+    * killer on death comes only from the current enemy-player target
+      (killer_source = "target"; schema still allows "combat_log" but it is unused).
 ]]
 
 CrusaderStrike = CrusaderStrike or {}
@@ -16,14 +16,9 @@ CS.PvpLog = CS.PvpLog or {}
 local PL = CS.PvpLog
 local P = CrusaderStrikePvp
 
-local KB_WINDOW_SEC = 3        -- our killing blow must precede HK credit by <= this
-local ATTACKER_WINDOW_SEC = 10 -- last enemy player hit before PLAYER_DEAD
-
 local state = {
   inDuel = false,
   duelEndedAt = nil,
-  killingBlows = {},   -- [destGUID] = { t, byPet }
-  lastAttacker = nil,  -- { guid, name, t }
 }
 PL._state = state
 
@@ -70,13 +65,6 @@ local function context()
   }
 end
 
-function PL.HasCombatLog()
-  if type(CombatLogGetCurrentEventInfo) ~= "function" then
-    return false
-  end
-  return (pcall(CombatLogGetCurrentEventInfo))
-end
-
 local function split_name(full)
   if not full then return nil, nil end
   local n, r = full:match("^([^%-]+)%-(.+)$")
@@ -102,20 +90,6 @@ local function opponent_from_unit(unit)
   }
 end
 
-local function opponent_from_guid(guid, fallbackName)
-  local ev = { opponentName = fallbackName, opponentIsPlayer = guid and guid:match("^Player%-") ~= nil }
-  if guid and GetPlayerInfoByGUID then
-    local _, classFile, _, _, _, name, realm = GetPlayerInfoByGUID(guid)
-    ev.opponentClass = classFile
-    ev.opponentName = name or fallbackName
-    ev.opponentRealm = (realm and realm ~= "") and realm or nil
-  end
-  if ev.opponentName and not ev.opponentRealm then
-    ev.opponentName, ev.opponentRealm = split_name(ev.opponentName)
-  end
-  return ev
-end
-
 local function record_world(ev)
   local db = pvp_db()
   if not db then return nil end
@@ -133,62 +107,21 @@ function PL.OnHonorableKill(unitTarget)
   local ev = opponent_from_unit(unitTarget) or {}
   ev.honorable = true
   ev.result = "kill"
-  if PL.HasCombatLog() and ev.opponentGUID then
-    -- Only used to drop pet-only killing blows; HK credit is always recorded as "kill".
-    local kb = state.killingBlows[ev.opponentGUID]
-    if kb and (now() - kb.t) <= KB_WINDOW_SEC then
-      ev.killerIsPet = kb.byPet
-    end
-  end
+  -- No combat log: cannot distinguish pet-only kills; every HK credit is "kill".
   return record_world(ev)
 end
 
 function PL.OnPlayerDead()
-  local ev
-  local a = state.lastAttacker
-  if a and (now() - a.t) <= ATTACKER_WINDOW_SEC then
-    ev = opponent_from_guid(a.guid, a.name)
-    ev.opponentIsPet = a.isPet
-    ev.killerSource = "combat_log"
-  elseif UnitIsPlayer("target") and UnitIsEnemy and UnitIsEnemy("player", "target") then
-    ev = opponent_from_unit("target") -- no combat log: best effort from target
-    ev.killerSource = "target"
-  else
+  -- No combat log: killer comes only from the current enemy-player target.
+  -- Schema still allows killer_source="combat_log" but Forever never sets it.
+  if not (UnitIsPlayer("target") and UnitIsEnemy and UnitIsEnemy("player", "target")) then
     return nil, "no_player_killer"
   end
+  local ev = opponent_from_unit("target")
+  ev.killerSource = "target"
   ev.result = "death"
   ev.honorable = false
-  state.lastAttacker = nil
   return record_world(ev)
-end
-
-local function prune_killing_blows(t)
-  for guid, kb in pairs(state.killingBlows) do
-    if (t - kb.t) > KB_WINDOW_SEC then
-      state.killingBlows[guid] = nil
-    end
-  end
-end
-PL._pruneKillingBlows = prune_killing_blows
-
-local function on_cleu()
-  local ok, _, subevent, _, sourceGUID, sourceName, sourceFlags, _, destGUID =
-    pcall(CombatLogGetCurrentEventInfo)
-  if not ok or not subevent then return end
-  local me = UnitGUID and UnitGUID("player")
-  local pet = UnitGUID and UnitGUID("pet")
-  if subevent == "PARTY_KILL" and destGUID and destGUID:match("^Player%-")
-    and (sourceGUID == me or (pet and sourceGUID == pet)) then
-    local t = now()
-    prune_killing_blows(t)
-    state.killingBlows[destGUID] = { t = t, byPet = sourceGUID ~= me }
-  elseif destGUID == me and sourceGUID and subevent:match("_DAMAGE$") then
-    local isPlayer = sourceGUID:match("^Player%-") ~= nil
-    local isPet = sourceGUID:match("^Pet%-") ~= nil
-    if isPlayer or isPet then
-      state.lastAttacker = { guid = sourceGUID, name = sourceName, t = now(), isPet = isPet }
-    end
-  end
 end
 
 -- Battlegrounds ---------------------------------------------------------------
@@ -272,7 +205,6 @@ end
 local handlers = {
   PLAYER_PVP_KILLS_CHANGED = function(unit) PL.OnHonorableKill(unit) end,
   PLAYER_DEAD = function() PL.OnPlayerDead() end,
-  COMBAT_LOG_EVENT_UNFILTERED = on_cleu,
   DUEL_REQUESTED = function() state.inDuel = true end,
   DUEL_INBOUNDS = function() state.inDuel = true end,
   DUEL_FINISHED = function() state.inDuel = false; state.duelEndedAt = now() end,
@@ -296,11 +228,9 @@ function PL.HandleEvent(event, ...)
 end
 
 local frame = CreateFrame("Frame", "CrusaderStrikePvpLogFrame")
+-- Never register COMBAT_LOG_EVENT_UNFILTERED: Forever treats it as Blizzard-UI-only.
 for event in pairs(handlers) do
-  -- CLEU payload isn't readable by addons on Forever 1.60.1; only listen when it is.
-  if event ~= "COMBAT_LOG_EVENT_UNFILTERED" or PL.HasCombatLog() then
-    frame:RegisterEvent(event)
-  end
+  frame:RegisterEvent(event)
 end
 PL._frame = frame
 frame:SetScript("OnEvent", function(_, event, ...)

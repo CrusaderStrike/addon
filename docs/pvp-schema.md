@@ -92,5 +92,7 @@ to addons. PM accepted these limits for ticket A:
 - **(c)** Dishonorable kills (no honor credit) aren't recorded.
 - **(d)** The killer on a death only comes from the player's current target (`killer_source = "target"`); deaths with no enemy-player target aren't recorded.
 
-`COMBAT_LOG_EVENT_UNFILTERED` is only registered if `CombatLogGetCurrentEventInfo` is
-callable. These limits get revisited if a later Forever build unprotects the combat log.
+The addon never registers `COMBAT_LOG_EVENT_UNFILTERED` and never calls
+`CombatLogGetCurrentEventInfo` (both trigger ADDON_ACTION_BLOCKED on Forever).
+`killer_source = "combat_log"` remains schema-valid but unused. Revisit if a later
+Forever build unprotects the combat log.

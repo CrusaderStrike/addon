@@ -1,6 +1,6 @@
 -- Event-level tests: PvpLog.lua driven by mocked WoW events (Forever API surface).
 local root = package.path:match("([^;]*)/Logic/%?.lua") or "."
-_G.CombatLogGetCurrentEventInfo = nil -- not exposed to addons in Forever 1.60.1
+-- CombatLogGetCurrentEventInfo stays as the erroring mock from mock_wow.lua
 dofile(root .. "/Core.lua")
 dofile(root .. "/PvpLog.lua")
 local CS = CrusaderStrike
@@ -11,7 +11,7 @@ local units, inst, zoneType, winner, scoreRow
 local function reset()
   CrusaderStrikeDB = { settings = {} }
   CrusaderStrikeCharDB = { runs = {} }
-  PL._state.inDuel, PL._state.duelEndedAt, PL._state.lastAttacker = false, nil, nil
+  PL._state.inDuel, PL._state.duelEndedAt = false, nil
   units = { player = { name = "Aldric", class = "PALADIN", level = 60, faction = "Alliance", player = true, guid = "Player-1-0001" } }
   inst = { false, nil }
   zoneType, winner, scoreRow = "contested", nil, nil
@@ -128,16 +128,21 @@ describe("pvp events (mocked Forever client)", function()
     eq(db().finishedBattleground, nil)
   end)
 
-  it("CLEU is not registered when the combat log is unreadable", function()
+  it("never registers CLEU and never calls CombatLogGetCurrentEventInfo", function()
     eq(PL._frame._events.COMBAT_LOG_EVENT_UNFILTERED, nil)
     ok(PL._frame._events.PLAYER_PVP_KILLS_CHANGED, "HK event registered")
+    ok(PL._frame._events.PLAYER_DEAD, "PLAYER_DEAD registered")
+    eq(_G._CS_CombatLogCallCount or 0, 0)
+    eq(_G._CS_CleuRegisterAttempts or 0, 0)
   end)
 
-  it("killing-blow cache is pruned by age", function()
-    PL._state.killingBlows = { old = { t = T - 100 }, fresh = { t = T } }
-    PL._pruneKillingBlows(T)
-    eq(PL._state.killingBlows.old, nil)
-    ok(PL._state.killingBlows.fresh ~= nil, "fresh kept")
+  it("death killer_source is target never combat_log", function()
+    reset()
+    units.target = { name = "Grukk", class = "WARRIOR", level = 59, faction = "Horde", player = true, guid = "Player-2-0002" }
+    PL.HandleEvent("PLAYER_DEAD")
+    eq(#db().world, 1)
+    eq(db().world[1].result, "death")
+    eq(db().world[1].killer_source, "target")
   end)
 
   it("BG left early (or disconnect then relog outside) is left with partial stats", function()

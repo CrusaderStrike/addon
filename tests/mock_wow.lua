@@ -24,7 +24,13 @@ function _G.CreateFrame(frameType, name, parent, template)
     _events = {},
     _shown = false,
   }
-  function f:RegisterEvent(e) self._events[e] = true end
+  function f:RegisterEvent(e)
+    if e == "COMBAT_LOG_EVENT_UNFILTERED" then
+      _G._CS_CleuRegisterAttempts = (_G._CS_CleuRegisterAttempts or 0) + 1
+      error("COMBAT_LOG_EVENT_UNFILTERED registration is protected on Forever 1.60.1", 0)
+    end
+    self._events[e] = true
+  end
   function f:UnregisterEvent(e) self._events[e] = nil end
   function f:SetScript(ev, fn) self._scripts[ev] = fn end
   function f:SetSize() end
@@ -76,8 +82,11 @@ _G.IsInInstance = function() return false, nil end
 _G.GetInstanceInfo = function()
   return nil, nil, nil, nil, nil, nil, nil, nil
 end
+-- Forever 1.60.1: calling this (even under pcall) triggers ADDON_ACTION_BLOCKED.
+_G._CS_CombatLogCallCount = 0
 _G.CombatLogGetCurrentEventInfo = function()
-  return nil
+  _G._CS_CombatLogCallCount = (_G._CS_CombatLogCallCount or 0) + 1
+  error("CombatLogGetCurrentEventInfo is protected on Forever 1.60.1", 0)
 end
 _G.UnitIsDead = function() return false end
 _G.UnitIsDeadOrGhost = function() return false end

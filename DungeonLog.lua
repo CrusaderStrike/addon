@@ -1,12 +1,12 @@
 --[[
   Instance detection, party snapshot, boss/death tracking for WoW Forever.
 
-  Forever 1.60.1 runs on the 12.x UI stack: CombatLogGetCurrentEventInfo is not
-  callable by addons (missing from Ketho forever GlobalAPI; protected on 12.x).
-  Boss kills use ENCOUNTER_END (success=1) / BOSS_KILL with verified DungeonEncounter
-  IDs, plus a boss-unit UnitIsDead fallback. Party deaths use PLAYER_DEAD and
-  UNIT_HEALTH/UNIT_FLAGS on player/party1-4. CLEU is registered only via pcall and
-  never drives production detection (debug probe only).
+  Forever 1.60.1 (12.x): the combat log is off-limits. Registering
+  COMBAT_LOG_EVENT_UNFILTERED or calling CombatLogGetCurrentEventInfo triggers
+  ADDON_ACTION_BLOCKED; pcall does not hide the popup. This file never touches
+  CLEU. Boss kills use ENCOUNTER_END (success=1) / BOSS_KILL with verified
+  DungeonEncounter IDs, plus a boss-unit UnitIsDead fallback. Party deaths use
+  PLAYER_DEAD and UNIT_HEALTH/UNIT_FLAGS on player/party1-4.
 ]]
 
 CrusaderStrike = CrusaderStrike or {}
@@ -16,7 +16,6 @@ local DL = CS.DungeonLog
 
 local deathTracker = CrusaderStrikeDetection.NewDeathTracker(5)
 local engagedBosses = {} -- [unitToken] = { npcId=..., name=..., guid=... }
-local cleuRegistered = false
 
 local function now()
   if GetServerTime then
@@ -406,18 +405,6 @@ function DL.HandlePlayerDeadEvent()
   return ok
 end
 
--- Debug / guarded only: never used for production boss/death detection.
-function DL.OnCombatLogEventUnfiltered()
-  if CS.DebugEvents then
-    local ok, info, detail = CrusaderStrikeDetection.TryReadCombatLog()
-    CS.DebugEvents.Note("COMBAT_LOG_EVENT_UNFILTERED", now(), {
-      cleuCallable = ok,
-      detail = detail,
-      subevent = info and info.subevent or nil,
-    })
-  end
-end
-
 local frame = CreateFrame("Frame", "CrusaderStrikeDungeonLogFrame")
 safe_register(frame, "PLAYER_ENTERING_WORLD")
 safe_register(frame, "ZONE_CHANGED_NEW_AREA")
@@ -427,8 +414,6 @@ safe_register(frame, "ENCOUNTER_END")
 safe_register(frame, "BOSS_KILL")
 safe_register(frame, "INSTANCE_ENCOUNTER_ENGAGE_UNIT")
 safe_register(frame, "PLAYER_DEAD")
--- CLEU: may error on Forever registration; probe only for /cs debug events.
-cleuRegistered = safe_register(frame, "COMBAT_LOG_EVENT_UNFILTERED")
 
 -- UNIT_HEALTH/UNIT_FLAGS only for player, party1-4, boss1-5. Prefer
 -- RegisterUnitEvent; otherwise register globally and filter in OnEvent.
@@ -440,9 +425,7 @@ DL.WATCHED_UNITS = WATCHED_UNITS
 
 
 local function on_event(_, event, arg1, arg2, arg3, arg4, arg5, ...)
-  if event == "COMBAT_LOG_EVENT_UNFILTERED" then
-    DL.OnCombatLogEventUnfiltered()
-  elseif event == "ENCOUNTER_START" then
+  if event == "ENCOUNTER_START" then
     if CS.DebugEvents then
       CS.DebugEvents.Note("ENCOUNTER_START", now(), {
         encounterID = arg1,
@@ -534,10 +517,6 @@ function DL.OnLogin()
   else
     DL.ReconcileStale(nil)
   end
-end
-
-function DL.CleuRegistered()
-  return cleuRegistered
 end
 
 DL.CreatureIdFromGuid = creature_id_from_guid

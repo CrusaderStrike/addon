@@ -8,34 +8,11 @@ function CrusaderStrikeDetection.EncounterSucceeded(success)
   return success == 1 or success == true
 end
 
--- Probe CombatLogGetCurrentEventInfo without tainting callers.
--- Forever 1.60.1 (12.x): function missing or protected — never call unprotected.
--- Returns: ok (bool), info (table|nil), detail (string)
-function CrusaderStrikeDetection.TryReadCombatLog()
-  local fn = rawget(_G, "CombatLogGetCurrentEventInfo")
-  if type(fn) ~= "function" then
-    return false, nil, "missing"
-  end
-  local results = { pcall(fn) }
-  local ok = results[1]
-  if not ok then
-    return false, nil, "error:" .. tostring(results[2])
-  end
-  -- results[2..] are CLEU fields; pack a small table when present
-  local timestamp = results[2]
-  local subevent = results[3]
-  if timestamp == nil and subevent == nil then
-    return true, nil, "callable_empty"
-  end
-  return true, {
-    timestamp = timestamp,
-    subevent = subevent,
-    sourceGUID = results[5],
-    sourceName = results[6],
-    destGUID = results[9],
-    destName = results[10],
-  }, "callable"
-end
+-- Combat log is NOT used on Forever 1.60.1. COMBAT_LOG_EVENT_UNFILTERED
+-- registration and CombatLogGetCurrentEventInfo both trigger
+-- ADDON_ACTION_BLOCKED ("blocked from an action only available to the Blizzard UI").
+-- pcall does not suppress that popup. Boss/death detection uses ENCOUNTER_*,
+-- BOSS_KILL, PLAYER_DEAD, and UNIT_HEALTH/UNIT_FLAGS only.
 
 -- Party / player death tracker: count each death once; release+rez must not
 -- double-count while the unit stays dead/ghost. PLAYER_DEAD may fire twice on

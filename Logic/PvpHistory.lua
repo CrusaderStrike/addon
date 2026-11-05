@@ -20,6 +20,7 @@ local SEP = "|"
 -- No "assist": Forever 1.60.1 addons can't read the combat log, so killing blow
 -- vs assist is unknowable. Re-add if a later build makes the payload readable.
 local VALID_WORLD_RESULTS = { kill = true, death = true }
+-- combat_log remains schema-valid but unused: Forever blocks CLEU reads/registration.
 local VALID_KILLER_SOURCES = { target = true, combat_log = true }
 
 -- Faction index used by the scoreboard / GetBattlefieldWinner: 0 Horde, 1 Alliance.
@@ -125,7 +126,7 @@ function P.RecordWorld(pvp, ident, ev, ctx)
     subzone = (ctx.subzone ~= "" and ctx.subzone) or nil,
     result = ev.result,
     honorable = ev.honorable and true or false,
-    -- deaths only: how the killer was identified ("target" | "combat_log"), nil = unknown
+    -- deaths only: how the killer was identified ("target"; "combat_log" reserved/unused), nil = unknown
     killer_source = (ev.result == "death" and VALID_KILLER_SOURCES[ev.killerSource]) and ev.killerSource or nil,
     opponent = {
       name = ev.opponentName,

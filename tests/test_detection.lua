@@ -6,40 +6,29 @@ describe("detection helpers", function()
     ok(not CrusaderStrikeDetection.EncounterSucceeded(nil))
     ok(not CrusaderStrikeDetection.EncounterSucceeded(false))
   end)
+end)
 
-  it("pcall-guards CombatLogGetCurrentEventInfo when it errors", function()
-    local old = _G.CombatLogGetCurrentEventInfo
-    _G.CombatLogGetCurrentEventInfo = function()
-      error("protected", 0)
-    end
-    local okRead, info, detail = CrusaderStrikeDetection.TryReadCombatLog()
-    eq(okRead, false)
-    eq(info, nil)
-    ok(type(detail) == "string" and detail:match("^error:"))
-    _G.CombatLogGetCurrentEventInfo = old
-  end)
-
-  it("reports missing CombatLogGetCurrentEventInfo", function()
-    local old = _G.CombatLogGetCurrentEventInfo
-    _G.CombatLogGetCurrentEventInfo = nil
-    local okRead, info, detail = CrusaderStrikeDetection.TryReadCombatLog()
-    eq(okRead, false)
-    eq(info, nil)
-    eq(detail, "missing")
-    _G.CombatLogGetCurrentEventInfo = old
-  end)
-
-  it("reads callable combat log via pcall", function()
-    local old = _G.CombatLogGetCurrentEventInfo
-    _G.CombatLogGetCurrentEventInfo = function()
-      return 100, "UNIT_DIED", false, nil, nil, nil, nil, "Creature-0-0-0-0-639-0", "Edwin VanCleef", 0
-    end
-    local okRead, info, detail = CrusaderStrikeDetection.TryReadCombatLog()
-    eq(okRead, true)
-    eq(detail, "callable")
-    eq(info.subevent, "UNIT_DIED")
-    eq(info.destName, "Edwin VanCleef")
-    _G.CombatLogGetCurrentEventInfo = old
+describe("no combat-log usage on Forever", function()
+  it("never registers CLEU or calls CombatLogGetCurrentEventInfo at load or login", function()
+    -- mock_wow makes CLEU RegisterEvent and CombatLogGetCurrentEventInfo error+count
+    eq(_G._CS_CombatLogCallCount or 0, 0)
+    eq(_G._CS_CleuRegisterAttempts or 0, 0)
+    local dlFrame = _G.CrusaderStrikeDungeonLogFrame
+    local plFrame = _G.CrusaderStrikePvpLogFrame
+    ok(dlFrame ~= nil, "dungeon frame loaded")
+    ok(plFrame ~= nil, "pvp frame loaded")
+    eq(dlFrame._events.COMBAT_LOG_EVENT_UNFILTERED, nil)
+    eq(plFrame._events.COMBAT_LOG_EVENT_UNFILTERED, nil)
+    -- login / zone pulse must also stay CLEU-free
+    CrusaderStrike.DungeonLog.OnLogin()
+    eq(_G._CS_CombatLogCallCount or 0, 0)
+    eq(_G._CS_CleuRegisterAttempts or 0, 0)
+    eq(dlFrame._events.COMBAT_LOG_EVENT_UNFILTERED, nil)
+    -- production detection still registered
+    ok(dlFrame._events.ENCOUNTER_END, "ENCOUNTER_END registered")
+    ok(dlFrame._events.BOSS_KILL, "BOSS_KILL registered")
+    ok(dlFrame._events.PLAYER_DEAD, "PLAYER_DEAD registered")
+    ok(plFrame._events.PLAYER_PVP_KILLS_CHANGED, "HK event registered")
   end)
 end)
 

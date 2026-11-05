@@ -33,24 +33,31 @@ Addon for **World of Warcraft: Forever only** that logs dungeon runs for the Cru
 
 ## PvP history (`/cs pvp`)
 
-World PvP kills/deaths and battlegrounds are saved to `CrusaderStrikeCharDB.pvp`; see [docs/pvp-schema.md](docs/pvp-schema.md). Forever limits accepted by PM (combat log isn't readable by addons on 1.60.1):
+World PvP kills/deaths and battlegrounds are saved to `CrusaderStrikeCharDB.pvp`; see [docs/pvp-schema.md](docs/pvp-schema.md). Forever limits accepted by PM (combat log is never used — registration/reads are blocked on 1.60.1):
 
 - (a) Kills and assists can't be told apart; every honorable-kill credit is a `kill`.
 - (b) Pet-only kills can't be excluded.
 - (c) Dishonorable kills aren't recorded.
 - (d) The killer on a death only comes from your current target (`killer_source = "target"`).
 
-These get revisited if a later Forever build unprotects the combat log.
+Schema still allows `killer_source = "combat_log"` but Forever never sets it. Revisit if a later Forever build unprotects the combat log.
 
 ## Dungeon detection method (Forever 1.60.1)
 
-Forever cannot read the combat log from addon code (`CombatLogGetCurrentEventInfo`
-missing / secure). Boss kills use `ENCOUNTER_END` (`success=1`) and `BOSS_KILL` matched
-to verified `DungeonEncounter` IDs, with a `boss1`–`boss5` `UnitIsDead` fallback.
-Party deaths use `PLAYER_DEAD` plus `UNIT_HEALTH`/`UNIT_FLAGS` on `player`/`party1-4` (deaths are keyed per character by GUID, falling back to name-realm; members already dead or ghosted after a /reload, a re-zone or a roster change are seeded and not counted again)
+**The combat log is not used.** On Forever 1.60.1, registering
+`COMBAT_LOG_EVENT_UNFILTERED` or calling `CombatLogGetCurrentEventInfo` triggers the
+`ADDON_ACTION_BLOCKED` popup ("blocked from an action only available to the Blizzard UI");
+`pcall` does not suppress it. This addon never registers CLEU and never calls the
+combat-log APIs.
+
+Boss kills use `ENCOUNTER_END` (`success=1`) and `BOSS_KILL` matched to verified
+`DungeonEncounter` IDs, with a `boss1`–`boss5` `UnitIsDead` fallback. Party deaths use
+`PLAYER_DEAD` plus `UNIT_HEALTH`/`UNIT_FLAGS` on `player`/`party1-4` (deaths are keyed
+per character by GUID, falling back to name-realm; members already dead or ghosted after
+a /reload, a re-zone or a roster change are seeded and not counted again)
 (each death counted once across release/rez). Wipes (`ENCOUNTER_END` success=0) are
-not kills. `/cs debug events [on|off|dump]` records whether candidate events fire
-in-game — see [docs/forever-event-check.md](docs/forever-event-check.md).
+not kills. `/cs debug events [on|off|dump]` records whether candidate non-CLEU events
+fire in-game — see [docs/forever-event-check.md](docs/forever-event-check.md).
 
 ## Develop / test
 

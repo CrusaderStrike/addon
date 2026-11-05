@@ -161,9 +161,9 @@ A companion uploader can parse these Lua tables, skip keys already ACK'd, and PO
 
 1. Enter party instance → start run (or resume within `resumeWindowSec` if same `instance.id` and status is `in_progress` or `closed`).
 2. While the run is active, bump internal `lastSeenAt` on combat events and zone/login pulses (not exported).
-3. `COMBAT_LOG_EVENT_UNFILTERED` / `UNIT_DIED`:
-   - Creature GUID NPC id in bundled Forever boss table (`Data/Bosses.lua`) → boss kill; final boss ⇒ `completed=true`.
-   - Party player death → `deaths[]`.
+3. Boss kills and party deaths (no combat log — Forever blocks CLEU):
+   - `ENCOUNTER_END` (success=1) / `BOSS_KILL` / boss-unit `UnitIsDead` fallback → boss kill; final boss ⇒ `completed=true`.
+   - `PLAYER_DEAD` / `UNIT_HEALTH`/`UNIT_FLAGS` on party → `deaths[]`.
 4. Leave instance cleanly → `status=closed` (or remains `completed`), clear `activeRunKey`, keep row in `runs`.
 5. Stale `in_progress` cleanup (addon#8): on `PLAYER_LOGIN` / `PLAYER_ENTERING_WORLD` / zone change, any `in_progress` run that does **not** match the current party instance (or whose `lastSeenAt` is outside `resumeWindowSec`) is marked `status=abandoned` in SavedVariables, `completed=false`, `endedAt=lastSeenAt` (no fake duration from a later login). `abandoned` is **local-only**: the export always sends such runs as `status: "closed"`, `completed: false`, so `abandoned` never appears in an export string or API payload. `lastSeenAt` is also SavedVariables-only and is not exported (`RunUpload` does not define it). `/reload` or reconnect inside the same instance within the window resumes; abandoned runs never resume.
 6. Platform ingest (platform#18): uploads are keyed by `addonRunId`. A same-key superset re-upload of an abandoned run (exported as `closed`, `completed=false`) upserts the stored row and may move `endedAt` forward; the platform allows this only while `completed=false`. If the player later runs the dungeon again, that is a **new** key (new `startedAt`): the abandoned run stays on the platform and a separate new run is added. It does not replace the abandoned one.
