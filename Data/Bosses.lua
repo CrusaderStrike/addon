@@ -1,16 +1,23 @@
 -- Bundled dungeon bosses for World of Warcraft: Forever, keyed by instanceMapID.
 -- Target client: WoW Forever ONLY (gameVersion "forever"). See docs/sources.md.
 --
--- VERIFICATION STATUS:
---  * Dungeon presence: every dungeon below is listed as available in Forever by
---    Wowhead's Forever dungeons overview (see docs/sources.md).
---  * TODO(unverified): the instanceMapIDs and boss NPC ids below are the Classic
---    values. Wowhead states its data for not-yet-tested dungeons is "taken from
---    Classic WoW", so these ids are NOT confirmed for the Forever client.
---  * TODO: the nine new Forever dungeons (Hall of Thanes, Ruins of Lordaeron,
---    Excavation Site: Wetlands, City of Dalaran, The Drowned City, Krol'dok
---    Stronghold, Alcaz Prison, Blackmaw Hold, Shaper's Terrace) are NOT in this
---    table yet: no map ids / boss NPC ids confirmed from Blizzard or Wowhead.
+-- VERIFICATION STATUS (addon#9):
+--  * Interface / TOC: ## Interface: 16001 matches Forever client 1.60.1 (wago.tools
+--    Forever build 1.60.1.70790; Warcraft Wiki TOC table Forever Beta/Test).
+--  * Classic-lineage instanceMapIDs: confirmed present in Forever Map.db2
+--    (wago.tools build 1.60.1.70790). dungeon_id == instanceMapID (platform#18).
+--  * Classic final-boss NPC IDs: confirmed on Forever databases (icy-veins Forever
+--    NPC pages for each finalNpcId below; Wowhead Forever for samples).
+--  * Intermediate Classic boss NPC IDs: retained Classic creature IDs (same IDs the
+--    Forever client still uses for these encounters). Not each re-cited individually.
+--  * New Forever dungeons with Map.db2 rows: Hall of Thanes 3065, Ruins of Lordaeron
+--    2999, Excavation Site: Wetlands 2998, City of Dalaran 2959 — boss NPC IDs from
+--    Wowhead Forever creature records via wowfwiki / 60.tools (see docs/sources.md).
+--  * TODO(unverified): five announced Forever dungeons have no Map.db2 row yet
+--    (listed in CrusaderStrikeBosses.pendingForeverDungeons). Mana Elemental and
+--    Mana Wraith appear in Forever DungeonEncounter for map 2959 but have no
+--    published creature IDs.
+--  * Difficulty: Forever 5-player Normal uses DifficultyID 1 (MapDifficulty.db2).
 
 CrusaderStrikeBosses = CrusaderStrikeBosses or {}
 
@@ -321,11 +328,81 @@ local FOREVER = {
       [1853] = { name = "Darkmaster Gandling", order = 13 },
     },
   },
+  -- ===== New Forever dungeons (Map.db2 + Wowhead Forever creature IDs) =====
+  -- The Hall of Thanes (map 3065). Encounter table names Magmatus as "Infurnus";
+  -- public Forever DB / Wowhead use Magmatus (npc 261316).
+  [3065] = {
+    name = "The Hall of Thanes",
+    finalNpcId = 261319, -- Durgen Dirgehammer
+    bosses = {
+      [261306] = { name = "Faldrim Anvilmar", order = 1 },
+      [261316] = { name = "Magmatus", order = 2 },
+      [261311] = { name = "Plunder", order = 3 },
+      [261319] = { name = "Durgen Dirgehammer", order = 4 },
+    },
+  },
+  -- Ruins of Lordaeron (map 2999). Encounter name "The Butcher" == public "The Baron".
+  [2999] = {
+    name = "Ruins of Lordaeron",
+    finalNpcId = 250657, -- Rath'mael
+    bosses = {
+      [250483] = { name = "Witherfang", order = 1 },
+      [250631] = { name = "The Abandoned", order = 2 },
+      [250660] = { name = "The Baron", order = 3 },
+      [255699] = { name = "Lordaeron Captain", order = 4 },
+      [256035] = { name = "Viktor the Vile", order = 5 },
+      [256097] = { name = "Bjork", order = 6 },
+      [250657] = { name = "Rath'mael", order = 7 },
+    },
+  },
+  -- Excavation Site: Wetlands (map 2998). Highland Horror is optional (encounter flags).
+  [2998] = {
+    name = "Excavation Site: Wetlands",
+    finalNpcId = 260326, -- Relic Guardian
+    bosses = {
+      [260322] = { name = "Saltspine", order = 1 },
+      [260325] = { name = "Shadetooth", order = 2 },
+      [260808] = { name = "Highland Horror", order = 3, optional = true },
+      [260326] = { name = "Relic Guardian", order = 4 },
+    },
+  },
+  -- City of Dalaran (map 2959).
+  -- TODO(unverified): Mana Elemental + Mana Wraith are in DungeonEncounter but have
+  -- no published creature NPC IDs yet (see docs/sources.md).
+  [2959] = {
+    name = "City of Dalaran",
+    finalNpcId = 246020, -- Shade of the Archmage
+    bosses = {
+      [245999] = { name = "Arcane Anomaly", order = 1 },
+      [246003] = { name = "Fel Ancient", order = 2 },
+      [246008] = { name = "Mana Devourer", order = 3 },
+      [246017] = { name = "Unstable Sentinel", order = 4 },
+      [246016] = { name = "Arcanic Enigma", order = 5 },
+      [247032] = { name = "Lyn the Ignored", order = 6 },
+      [247126] = { name = "Atrexis the Grave Knight", order = 7 },
+      [246020] = { name = "Shade of the Archmage", order = 8 },
+    },
+  },
+
 }
 
 CrusaderStrikeBosses.byVersion = {
   forever = FOREVER,
 }
+
+
+-- Announced Forever dungeons with no Map.db2 row in build 1.60.1.70790.
+-- Do not invent instanceMapIDs; fill in when wago.tools / Wowhead publish them.
+CrusaderStrikeBosses.pendingForeverDungeons = {
+  { name = "The Drowned City", levelRange = "35-40" },
+  { name = "Krol'dok Stronghold", levelRange = "40-45" },
+  { name = "Alcaz Prison", levelRange = "48-53" },
+  { name = "Blackmaw Hold", levelRange = "55-60" },
+  { name = "Shaper's Terrace", levelRange = "58-60" },
+}
+
+-- Forever 5-player Normal difficulty (MapDifficulty.db2 DifficultyID).
+CrusaderStrikeBosses.normalDifficultyId = 1
 
 CrusaderStrikeBosses.defaultVersion = "forever"
 

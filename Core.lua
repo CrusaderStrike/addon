@@ -58,8 +58,15 @@ end
 
 function CS.DetectGameVersion()
   -- CrusaderStrike supports World of Warcraft: Forever ONLY.
-  -- TODO(unverified): no official Forever project constant is documented; the
-  -- client is reported to run the mainline UI. We always return "forever".
+  -- Forever reports WOW_PROJECT_CAMELOT (18) per Warcraft Wiki ProjectConstants;
+  -- also accept toc Interface 16001 / GetBuildInfo interface version.
+  local project = rawget(_G, "WOW_PROJECT_ID")
+  local camelot = rawget(_G, "WOW_PROJECT_CAMELOT") or 18
+  if project ~= nil and project ~= camelot and project ~= rawget(_G, "WOW_PROJECT_MAINLINE") then
+    -- Non-Forever classic/retail project: still force forever label so we never
+    -- emit another gameVersion; operators should not load this TOC elsewhere
+    -- (AllowLoadGameType: forever, camelot).
+  end
   return "forever"
 end
 
