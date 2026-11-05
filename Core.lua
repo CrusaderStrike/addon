@@ -9,7 +9,7 @@ CrusaderStrike = CrusaderStrike or {}
 local CS = CrusaderStrike
 
 CS.ADDON_NAME = "CrusaderStrike"
-CS.VERSION = "0.3.4"
+CS.VERSION = "0.3.5"
 -- SavedVariables layout version. 4 adds CrusaderStrikeCharDB.gearSets (CSGEAR1).
 -- 3 added CrusaderStrikeCharDB.wishLists (docs/loot-data.md).
 -- 2 added CrusaderStrikeCharDB.pvp (docs/pvp-schema.md).
