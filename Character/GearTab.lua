@@ -9,6 +9,12 @@
 --
 -- The addon is Lua-only. This file is the CreateFrame stand-in for a FrameXML
 -- child: the tab has to be appended at runtime onto CharacterFrame.ModeTabs.
+--
+-- ShowSubFrame is observed with hooksecurefunc (never replaced) and the CS
+-- enter work is deferred with C_Timer.After(0) so Blizzard's character-frame
+-- refresh is not tainted. PaperDoll slot buttons are HookScript'd, not
+-- SetScript-replaced. Gear Sets / Browser are icon buttons on the right-pane
+-- header (PaperDollSidebarTabs strip), not text buttons over the portrait.
 
 CrusaderStrike = CrusaderStrike or {}
 local CS = CrusaderStrike
@@ -55,11 +61,40 @@ UI.STAT_LABELS = {
 
 -- Forever Camelot insets so chrome does not cover Character*Slot buttons.
 -- Head slot: TOPLEFT of LeftPaneHost (24, -60). Weapon row: BOTTOM of
--- LeftPaneHost, y=30 (PaperDollItemSlotButton_OnLoad). Confirm in client.
+-- LeftPaneHost, y=30 (PaperDollItemSlotButton_OnLoad). The level/class line
+-- sits on PaperDollFrame.TopBackgroundStripHost (36px, left pane only).
+-- Confirm in client.
 local SLOT_SIDE_INSET = 72
-local SLOT_TOP_INSET = 36
+local SLOT_TOP_INSET = 44
 local WEAPON_BOTTOM_INSET = 84
 local MAX_ROWS = 8
+-- PaperDollSidebarTabTemplate is 42x42, anchored TOP of the right pane.
+local ICON_SIZE = 42
+local GEAR_SETS_ICON = "Interface\\Icons\\INV_Misc_Gear_01"
+local BROWSER_ICON = "Interface\\Icons\\INV_Misc_Bag_08"
+local CS_LOGO = "Interface\\AddOns\\CrusaderStrike\\assets\\logo.tga"
+
+local SLOT_LABEL = {
+  head = "Head",
+  neck = "Neck",
+  shoulder = "Shoulder",
+  shirt = "Shirt",
+  chest = "Chest",
+  waist = "Waist",
+  legs = "Legs",
+  feet = "Feet",
+  wrist = "Wrist",
+  hands = "Hands",
+  finger1 = "Finger",
+  finger2 = "Finger",
+  trinket1 = "Trinket",
+  trinket2 = "Trinket",
+  back = "Back",
+  main_hand = "Main Hand",
+  off_hand = "Off Hand",
+  ranged = "Ranged",
+  tabard = "Tabard",
+}
 
 local state = {
   active = false,
@@ -72,6 +107,7 @@ local state = {
   search = "",
   instanceId = nil,
   dungeonPick = 0,
+  gearSlot = nil,
 }
 
 local hooked = {}
@@ -266,13 +302,32 @@ local function refresh_stats()
   refresh_slot_icons()
 end
 
+local function mark_icon(btn, selected)
+  if not btn then
+    return
+  end
+  if btn.SetChecked then
+    btn:SetChecked(selected and true or false)
+  end
+  local glow = btn._csGlow
+  if glow then
+    if selected and glow.Show then
+      glow:Show()
+    elseif glow.Hide then
+      glow:Hide()
+    end
+  end
+  if selected and btn.LockHighlight then
+    btn:LockHighlight()
+  elseif btn.UnlockHighlight then
+    btn:UnlockHighlight()
+  end
+end
+
 local function refresh_top_tabs()
-  if topSetsBtn and topSetsBtn.SetText then
-    topSetsBtn:SetText(state.view == "sets" and "[Gear Sets]" or "Gear Sets")
-  end
-  if topBrowserBtn and topBrowserBtn.SetText then
-    topBrowserBtn:SetText(state.view == "browser" and "[Browser]" or "Browser")
-  end
+  -- Icons only. Names live on the tooltip. No bracketed text labels.
+  mark_icon(topSetsBtn, state.view == "sets")
+  mark_icon(topBrowserBtn, state.view == "browser")
   if setsPanel and setsPanel.SetShown then
     setsPanel:SetShown(state.view == "sets")
   elseif setsPanel then
@@ -315,7 +370,7 @@ local function refresh_gear_list()
       if list then
         btn:Show()
         btn._localId = list.local_id
-        local mark = (list.local_id == state.localId) and "* " or ""
+        local mark = (list.local_id == state.localId) and "• " or ""
         btn:SetText(mark .. (list.name or "gear set"))
       else
         btn:Hide()
@@ -347,8 +402,17 @@ local function browser_rows()
   return CrusaderStrikeGearBrowser.Filter({
     instanceId = state.instanceId,
     search = state.search,
+    gearSlot = state.gearSlot,
     difficulty = CrusaderStrikeGearBrowser.FOREVER_NORMAL,
   }, game_version())
+end
+
+local function browser_empty_text()
+  if state.gearSlot then
+    local label = SLOT_LABEL[state.gearSlot] or state.gearSlot
+    return "No " .. label .. " items in the Forever overlay."
+  end
+  return "No matching items. Forever overlay is a stub — see docs/character-gear-tab.md."
 end
 
 local function dungeon_label()
@@ -384,7 +448,7 @@ local function refresh_browser()
         btn._itemId = row.itemId
         local name = row.name or ("item " .. tostring(row.itemId))
         local boss = row.bossName and (row.bossName .. ": ") or ""
-        btn:SetText(boss .. name .. " [" .. tostring(row.itemId) .. "]")
+        btn:SetText(boss .. name .. "  " .. tostring(row.itemId))
       else
         btn:Hide()
         btn._itemId = nil
@@ -392,6 +456,7 @@ local function refresh_browser()
     end
   end
   if browserEmpty then
+    set_text(browserEmpty, browser_empty_text())
     if #rows == 0 then
       browserEmpty:Show()
     else
@@ -423,6 +488,7 @@ function UI.GetPreview()
     slots = state.previewSlots,
     filled = state.filled,
     view = state.view,
+    gearSlot = state.gearSlot,
   }
 end
 
@@ -431,8 +497,11 @@ function UI.OnPaperDollSlot(slotName)
     return
   end
   state.activeSlot = slotName
-  set_status("Wishlist slot: " .. slotName .. " (not equipped)")
-  refresh_stats()
+  state.gearSlot = slotName
+  state.view = "browser"
+  refresh_all()
+  local label = SLOT_LABEL[slotName] or slotName
+  set_status("Wishlist " .. label .. " — pick an item (not equipped)")
 end
 
 -- In-memory wishlist preview only. Does not write the saved set or equip.
@@ -480,56 +549,42 @@ function UI.SelectSet(localId)
   return true
 end
 
--- OnDragStart calls the global equip click. Swallow it with the other slot
--- scripts while this tab is up so the wishlist cannot change equipped gear.
+-- Post-hooks only. SetScript would replace Blizzard's handler and taint the
+-- paper doll. HookScript leaves that handler in place; disabling the record
+-- turns our callback into a no-op (WoW has no UnhookScript). The hook never
+-- calls PickupInventoryItem, UseInventoryItem, or Equipment Manager APIs.
 local HOOK_SCRIPTS = { "OnClick", "OnReceiveDrag", "OnDragStart" }
 
 local function apply_hooks()
   for _, info in ipairs(UI.SLOT_BUTTONS) do
     local button = _G[info.global]
-    if button and button.SetScript and button.GetScript and not hooked[info.global] then
+    local rec = hooked[info.global]
+    if rec then
+      rec.enabled = true
+    elseif button and button.HookScript then
       local slotName = info.slot
-      local saved = {}
-      local wrapped = false
+      rec = { enabled = true }
+      hooked[info.global] = rec
       for _, scriptName in ipairs(HOOK_SCRIPTS) do
         local script = scriptName
-        saved[script] = button:GetScript(script)
-        local function handler(self, ...)
-          if state.active then
-            if script == "OnClick" then
-              UI.OnPaperDollSlot(slotName, self)
-            end
+        local function handler()
+          if not rec.enabled or not state.active then
             return
           end
-          local orig = saved[script]
-          if orig then
-            return orig(self, ...)
+          if script == "OnClick" then
+            UI.OnPaperDollSlot(slotName)
           end
         end
-        local ok = pcall(button.SetScript, button, script, handler)
-        if ok then
-          wrapped = true
-        else
-          pcall(button.SetScript, button, script, saved[script])
-        end
-      end
-      if wrapped then
-        hooked[info.global] = saved
+        pcall(button.HookScript, button, script, handler)
       end
     end
   end
 end
 
 local function restore_hooks()
-  for globalName, saved in pairs(hooked) do
-    local button = _G[globalName]
-    if button and button.SetScript then
-      for _, script in ipairs(HOOK_SCRIPTS) do
-        pcall(button.SetScript, button, script, saved[script])
-      end
-    end
+  for _, rec in pairs(hooked) do
+    rec.enabled = false
   end
-  hooked = {}
 end
 
 local function cycle_dungeon()
@@ -545,6 +600,62 @@ local function cycle_dungeon()
     state.instanceId = list[state.dungeonPick].instanceId
   end
   refresh_browser()
+end
+
+local function bind_icon_tooltip(btn, tooltip)
+  btn.tooltipText = tooltip
+  btn:SetScript("OnEnter", function(self)
+    if GameTooltip and GameTooltip.SetOwner then
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:SetText(tooltip)
+      if GameTooltip.Show then
+        GameTooltip:Show()
+      end
+    end
+  end)
+  btn:SetScript("OnLeave", function()
+    if GameTooltip and GameTooltip.Hide then
+      GameTooltip:Hide()
+    end
+  end)
+end
+
+local function add_icon_button(parent, name, texture, tooltip)
+  local btn = CreateFrame("CheckButton", name, parent)
+  btn:SetSize(ICON_SIZE, ICON_SIZE)
+  btn._csIcon = texture
+  if btn.CreateTexture then
+    local icon = btn:CreateTexture(nil, "ARTWORK")
+    if icon.SetPoint then
+      icon:SetPoint("CENTER")
+    end
+    if icon.SetSize then
+      icon:SetSize(36, 36)
+    end
+    if icon.SetTexture then
+      icon:SetTexture(texture)
+    end
+    if icon.SetTexCoord then
+      icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    end
+    btn.icon = icon
+    local glow = btn:CreateTexture(nil, "OVERLAY")
+    if glow.SetAllPoints then
+      glow:SetAllPoints()
+    end
+    if glow.SetTexture then
+      glow:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
+    end
+    if glow.SetBlendMode then
+      glow:SetBlendMode("ADD")
+    end
+    if glow.Hide then
+      glow:Hide()
+    end
+    btn._csGlow = glow
+  end
+  bind_icon_tooltip(btn, tooltip)
+  return btn
 end
 
 local function ensure_ui()
@@ -565,35 +676,37 @@ local function ensure_ui()
     UI.Leave()
   end)
 
-  local top = CreateFrame("Frame", nil, root)
-  top:SetPoint("TOPLEFT", cf, "TOPLEFT", 8, -26)
-  top:SetPoint("TOPRIGHT", cf, "TOPRIGHT", -8, -26)
-  top:SetHeight(24)
-  if top.EnableMouse then
-    top:EnableMouse(true)
+  local left = cf.LeftPaneHost or cf
+  local right = cf.RightPaneHost or cf
+
+  -- Same strip as PaperDollSidebarTabs: TOP of the right pane, 42px icons.
+  -- Not on the left pane, so CharacterLevelText stays visible.
+  local iconRow = CreateFrame("Frame", "CrusaderStrikeGearIconRow", root)
+  iconRow:SetSize(92, 46)
+  iconRow:SetPoint("TOP", right, "TOP", 0, -4)
+  if iconRow.EnableMouse then
+    iconRow:EnableMouse(false)
   end
-  if top.SetFrameLevel then
-    top:SetFrameLevel(200)
+  if iconRow.SetFrameLevel then
+    iconRow:SetFrameLevel(40)
   end
 
-  topSetsBtn = CreateFrame("Button", nil, top, "UIPanelButtonTemplate")
-  topSetsBtn:SetSize(110, 22)
-  topSetsBtn:SetPoint("LEFT", top, "LEFT", 0, 0)
+  topSetsBtn = add_icon_button(iconRow, "CrusaderStrikeGearSetsIcon", GEAR_SETS_ICON, "Gear Sets")
+  topSetsBtn:SetPoint("RIGHT", iconRow, "CENTER", -2, 0)
   topSetsBtn:SetScript("OnClick", function()
     show_view("sets")
   end)
 
-  topBrowserBtn = CreateFrame("Button", nil, top, "UIPanelButtonTemplate")
-  topBrowserBtn:SetSize(110, 22)
-  topBrowserBtn:SetPoint("LEFT", topSetsBtn, "RIGHT", 6, 0)
+  topBrowserBtn = add_icon_button(iconRow, "CrusaderStrikeGearBrowserIcon", BROWSER_ICON, "Browser")
+  topBrowserBtn:SetPoint("LEFT", iconRow, "CENTER", 2, 0)
   topBrowserBtn:SetScript("OnClick", function()
     show_view("browser")
   end)
 
-  local left = cf.LeftPaneHost or cf
+  local leftPane = left
   local center = CreateFrame("Frame", nil, root, "BackdropTemplate")
-  center:SetPoint("TOPLEFT", left, "TOPLEFT", SLOT_SIDE_INSET, -SLOT_TOP_INSET)
-  center:SetPoint("BOTTOMRIGHT", left, "BOTTOMRIGHT", -SLOT_SIDE_INSET, WEAPON_BOTTOM_INSET)
+  center:SetPoint("TOPLEFT", leftPane, "TOPLEFT", SLOT_SIDE_INSET, -SLOT_TOP_INSET)
+  center:SetPoint("BOTTOMRIGHT", leftPane, "BOTTOMRIGHT", -SLOT_SIDE_INSET, WEAPON_BOTTOM_INSET)
   if center.EnableMouse then
     center:EnableMouse(true)
   end
@@ -693,15 +806,15 @@ local function ensure_ui()
     statusText:SetWidth(220)
   end
 
-  local right = cf.RightPaneHost or cf
   local stats = CreateFrame("Frame", nil, root, "BackdropTemplate")
-  stats:SetPoint("TOPLEFT", right, "TOPLEFT", 8, -36)
+  -- Below the 42px icon row (top of the right pane, y=-4).
+  stats:SetPoint("TOPLEFT", right, "TOPLEFT", 8, -52)
   stats:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", -8, 8)
   if stats.EnableMouse then
     stats:EnableMouse(true)
   end
   if stats.SetFrameLevel then
-    stats:SetFrameLevel(200)
+    stats:SetFrameLevel(10)
   end
   apply_backdrop(stats)
 
@@ -750,37 +863,39 @@ function UI.Enter()
     root:Show()
   end
   apply_hooks()
-  if type(_G.characterFrameDisplayInfo) == "table" then
-    local base = _G.characterFrameDisplayInfo.Default or _G.characterFrameDisplayInfo.PaperDollFrame
-    _G.characterFrameDisplayInfo[UI.FRAME_NAME] = {
-      title = "Crusader Strike",
-      titleColor = base and base.titleColor or nil,
-    }
-  end
   if cf.SetSelectedModeTabByFrame then
     pcall(cf.SetSelectedModeTabByFrame, cf, UI.FRAME_NAME)
   end
-  if cf.RefreshDisplay then
-    pcall(cf.RefreshDisplay, cf)
-  end
+  -- Do not call CharacterFrame:RefreshDisplay(). That runs TextStatusBar
+  -- updates on our call stack and taints secret number compares.
   refresh_all()
+end
+
+local function defer(fn)
+  if C_Timer and C_Timer.After then
+    C_Timer.After(0, fn)
+  else
+    fn()
+  end
 end
 
 local function hook_show_subframe(cf)
   if subframeHooked or not cf or type(cf.ShowSubFrame) ~= "function" then
     return
   end
-  local original = cf.ShowSubFrame
-  cf.ShowSubFrame = function(self, frameName)
-    if original then
-      original(self, frameName)
-    end
-    if frameName == UI.FRAME_NAME then
-      UI.Enter()
-    else
-      UI.Leave()
-    end
+  if type(hooksecurefunc) ~= "function" then
+    return
   end
+  -- Post-hook only. Replacing ShowSubFrame runs Blizzard's refresh tainted.
+  hooksecurefunc(cf, "ShowSubFrame", function(_, frameName)
+    defer(function()
+      if frameName == UI.FRAME_NAME then
+        UI.Enter()
+      else
+        UI.Leave()
+      end
+    end)
+  end)
   subframeHooked = true
 end
 
@@ -846,8 +961,11 @@ local function add_mode_tab(cf)
       GameTooltip:Hide()
     end
   end)
+  tab._csIcon = CS_LOGO
   if tab.Icon and tab.Icon.SetTexture then
-    tab.Icon:SetTexture("Interface\\Icons\\INV_Misc_Gear_01")
+    tab.Icon:SetTexture(CS_LOGO)
+  elseif tab.icon and tab.icon.SetTexture then
+    tab.icon:SetTexture(CS_LOGO)
   end
   if tab.ClearAllPoints then
     tab:ClearAllPoints()

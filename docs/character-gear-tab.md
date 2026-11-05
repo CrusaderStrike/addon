@@ -20,18 +20,29 @@ next tab.
 Selecting it keeps `PaperDollFrame` visible and opens
 `CrusaderStrikeCharacterGearFrame` on top of the non-slot areas:
 
-- Top of the CS frame: **Gear Sets** and **Browser**.
+- **Gear Sets** and **Browser** are 42px icons on the right-pane header, in the
+  same strip as `PaperDollSidebarTabs` (Character Stats / Equipment Manager /
+  Titles). Names are tooltips. The level/class line stays on the left pane
+  (`CharacterLevelText` / `PaperDollLevelInfo`).
+- The mode tab icon is `assets/logo.tga` (the Crusader Strike shield, gold so
+  it reads on the dark side tab). Gear Sets uses `INV_Misc_Gear_01`. Browser
+  uses `INV_Misc_Bag_08`.
 - Paper-doll slots are the real buttons (`CharacterHeadSlot`,
   `CharacterNeckSlot`, … `CharacterTabardSlot` on `PaperDollItemsFrame`).
-  The addon hooks their clicks while the tab is open. It does not create
-  copy slots.
-- Right side (`CharacterFrame.RightPaneHost`): live stat totals. The scaffold
-  shows classic stat names and a filled-slot count. Totals are not computed yet.
-- Center of the doll (between the slot columns, above the weapon row): the
-  gear-set list or the browser. Weapon and side slots stay clickable.
+  Clicks are `HookScript` post-hooks, not `SetScript` replacements. Clicking a
+  slot opens the browser filtered to that gear slot (Head, and so on) via
+  `CrusaderStrikeLoot` slot names. The hook does not call equip APIs.
+- `ShowSubFrame` is observed with `hooksecurefunc` and CS enter work runs on
+  `C_Timer.After(0)`. The addon does not call `CharacterFrame:RefreshDisplay`.
+- Right side (`CharacterFrame.RightPaneHost`), under the icon row: live stat
+  totals. The scaffold shows classic stat names and a filled-slot count.
+  Totals are not computed yet.
+- Center of the doll (between the slot columns, below the level line, above
+  the weapon row): the gear-set list or the browser.
 
 `/cs geartab` opens the tab. Closing the character frame or picking another
-mode tab restores the original slot click handlers.
+mode tab disables the wishlist post-hooks. Blizzard's own slot scripts stay
+installed.
 
 ## Loot data
 
@@ -57,9 +68,10 @@ Chasm, using item IDs already verified in `Data/Loot.lua`. Re-verify any new
 Forever item ID the same way (`docs/loot-data.md`, `docs/sources.md`). Do not
 invent IDs.
 
-The browser filters by dungeon (`InstanceID`) or searches by item name or item
-ID. Names come from `CrusaderStrikeLoot.LookupItem` when the overlay row has
-no name of its own.
+The browser filters by dungeon (`InstanceID`), by paper-doll gear slot, or
+searches by item name or item ID. Names and loot slots come from
+`CrusaderStrikeLoot.LookupItem`. The shipped overlay has no Head items yet, so
+a head click shows an empty Head list until a verified head drop is added.
 
 ## Next implementation step
 

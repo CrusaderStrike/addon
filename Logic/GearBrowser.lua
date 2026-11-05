@@ -20,6 +20,30 @@ GB.Baseline = {
 -- Forever dungeon Normal (docs/sources.md).
 GB.FOREVER_NORMAL = 1
 
+-- Paper-doll gear slot (Logic/GearSlots names) -> Data/Loot.lua slot strings.
+-- Atlas {slotIndex, itemID} is a button position, not this gear slot.
+local GEAR_LOOT = {
+  head = { Head = true },
+  neck = { Neck = true },
+  shoulder = { Shoulder = true },
+  back = { Back = true },
+  chest = { Chest = true },
+  wrist = { Wrist = true },
+  hands = { Hands = true },
+  waist = { Waist = true },
+  legs = { Legs = true },
+  feet = { Feet = true },
+  finger1 = { Finger = true },
+  finger2 = { Finger = true },
+  trinket1 = { Trinket = true },
+  trinket2 = { Trinket = true },
+  main_hand = { Weapon = true },
+  off_hand = { Weapon = true, Shield = true, ["Held In Off-hand"] = true },
+  ranged = { Ranged = true },
+  shirt = {},
+  tabard = {},
+}
+
 local function version_name(gameVersion)
   if type(gameVersion) == "string" and gameVersion ~= "" then
     return gameVersion
@@ -142,6 +166,18 @@ local function parse_row(row)
   return slotIndex, itemId, hinted
 end
 
+function GB.ItemLootSlot(itemId, gameVersion)
+  itemId = tonumber(itemId)
+  if not itemId or not CrusaderStrikeLoot or not CrusaderStrikeLoot.LookupItem then
+    return nil
+  end
+  local it = CrusaderStrikeLoot.LookupItem(version_name(gameVersion), itemId)
+  if type(it) == "table" and type(it.slot) == "string" and it.slot ~= "" then
+    return it.slot
+  end
+  return nil
+end
+
 function GB.ItemName(itemId, hinted, gameVersion)
   if type(hinted) == "string" and hinted ~= "" then
     return hinted
@@ -216,6 +252,17 @@ function GB.ListDungeons(gameVersion, sources)
   return sort_dungeons(list)
 end
 
+local function gear_allows(gearSlot, lootSlot)
+  if gearSlot == nil or gearSlot == "" then
+    return true
+  end
+  local allowed = GEAR_LOOT[gearSlot]
+  if not allowed then
+    return false
+  end
+  return lootSlot ~= nil and allowed[lootSlot] == true
+end
+
 local function search_match(itemId, name, search)
   if type(search) ~= "string" then
     return true
@@ -239,6 +286,7 @@ function GB.Filter(query, gameVersion, sources)
   local difficulty = tonumber(query.difficulty) or GB.FOREVER_NORMAL
   local wantInstance = tonumber(query.instanceId)
   local search = query.search
+  local gearSlot = query.gearSlot
   local rows = {}
   for _, entry in pairs(merged_dungeons(sources)) do
     if not wantInstance or entry.instanceId == wantInstance then
@@ -246,7 +294,8 @@ function GB.Filter(query, gameVersion, sources)
       local dungeonName = type(dungeon.name) == "string" and dungeon.name or entry.key
       for _, item in ipairs(each_item(dungeon, difficulty)) do
         local name = GB.ItemName(item.itemId, item.hintedName, gameVersion)
-        if search_match(item.itemId, name, search) then
+        local lootSlot = GB.ItemLootSlot(item.itemId, gameVersion)
+        if search_match(item.itemId, name, search) and gear_allows(gearSlot, lootSlot) then
           rows[#rows + 1] = {
             dungeonKey = entry.key,
             dungeonName = dungeonName,
@@ -259,6 +308,7 @@ function GB.Filter(query, gameVersion, sources)
             atlasSlotIndex = item.atlasSlotIndex,
             itemId = item.itemId,
             name = name,
+            lootSlot = lootSlot,
             origin = entry.origin,
           }
         end

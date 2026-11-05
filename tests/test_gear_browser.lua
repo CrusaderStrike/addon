@@ -112,6 +112,40 @@ describe("gear browser adapter", function()
     eq(rows[1].origin, "baseline")
   end)
 
+  it("filters a paper doll gear slot using verified loot slots", function()
+    local sources = {
+      baseline = {},
+      overlay = {
+        Sample = {
+          name = "Sample",
+          InstanceID = 389,
+          items = {
+            {
+              npcID = 11518,
+              [1] = {
+                { 1, 14150 },
+                { 2, 272999 },
+                { 3, 14148 },
+              },
+            },
+          },
+        },
+      },
+    }
+    local head = CrusaderStrikeGearBrowser.Filter({ gearSlot = "head" }, "forever", sources)
+    eq(#head, 0)
+    local chest = CrusaderStrikeGearBrowser.Filter({ gearSlot = "chest" }, "forever", sources)
+    eq(#chest, 1)
+    eq(chest[1].itemId, 14150)
+    eq(chest[1].lootSlot, "Chest")
+    local ranged = CrusaderStrikeGearBrowser.Filter({ gearSlot = "ranged" }, "forever", sources)
+    eq(#ranged, 1)
+    eq(ranged[1].itemId, 272999)
+    eq(ranged[1].lootSlot, "Ranged")
+    local shippedHead = CrusaderStrikeGearBrowser.Filter({ gearSlot = "head" })
+    eq(#shippedHead, 0)
+  end)
+
   it("reads difficulty 1 by default and skips non-numeric atlas rows", function()
     local sources = {
       baseline = {},

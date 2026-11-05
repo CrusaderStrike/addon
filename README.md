@@ -83,7 +83,7 @@ In-game UI to browse Forever dungeon loot and build a per-character wish list pe
 
 ## Character gear tab (`/cs geartab`)
 
-Scaffold for a last tab on the Forever character pane. It reuses the real paper-doll slot buttons for a wishlist preview (no Equip button, no Equipment Manager sync). Top tabs list saved gear sets and a gear browser (dungeon filter, or search by item name or item ID). Loot rows use an empty Atlas-shaped adapter plus a hand-curated Forever overlay. AtlasLoot Classic is a GPL-2.0 layout reference only — do not copy it wholesale. See [docs/character-gear-tab.md](docs/character-gear-tab.md).
+Scaffold for a last tab on the Forever character pane. It reuses the real paper-doll slot buttons for a wishlist preview (no Equip button, no Equipment Manager sync). Gear Sets and Browser are icons on the right-pane header. Clicking a slot opens the browser filtered to that gear slot. Loot rows use an empty Atlas-shaped adapter plus a hand-curated Forever overlay. AtlasLoot Classic is a GPL-2.0 layout reference only — do not copy it wholesale. See [docs/character-gear-tab.md](docs/character-gear-tab.md).
 
 ## Develop / test
 

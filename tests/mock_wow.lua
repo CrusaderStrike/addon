@@ -160,7 +160,35 @@ _G.GetInventoryItemLink = function(unit, slot)
   end
   return nil
 end
-_G.C_Timer = { After = function(sec, fn) end }
+-- After(0) runs immediately so deferred UI work is visible to tests.
+-- Longer delays stay queued and are not flushed (Equip debounce must not fire).
+_G.C_Timer = {
+  After = function(sec, fn)
+    if sec == 0 and type(fn) == "function" then
+      fn()
+    end
+  end,
+}
+
+-- Test stand-in for the client hooksecurefunc: original runs, then the hook.
+-- Production code must call this and must not replace ShowSubFrame itself.
+function _G.hooksecurefunc(tbl, name, fn)
+  if type(tbl) == "string" then
+    fn = name
+    name = tbl
+    tbl = _G
+  end
+  _G._CS_HookSecureCount = (_G._CS_HookSecureCount or 0) + 1
+  local orig = tbl[name]
+  tbl[name] = function(...)
+    if orig then
+      orig(...)
+    end
+    if fn then
+      fn(...)
+    end
+  end
+end
 _G.UnitExists = function(unit) return unit == "player" end
 _G.UnitIsUnit = function(a, b) return a == b end
 _G.UnitInParty = function() return true end

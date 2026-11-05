@@ -5,7 +5,10 @@ All notable changes to CrusaderStrike (World of Warcraft: Forever only).
 ## Unreleased
 
 ### Added
-- **Character pane gear tab (scaffold):** last CharacterFrame mode tab and a CS subframe that reuses the real PaperDoll slot buttons for a wishlist preview. Top tabs for saved gear sets and a gear browser (dungeon filter, item name or item ID) wired to an empty Atlas-shaped adapter plus one Forever overlay example. No equip path. See `docs/character-gear-tab.md`.
+- **Character pane gear tab (scaffold):** last CharacterFrame mode tab and a CS subframe that reuses the real PaperDoll slot buttons for a wishlist preview. Gear Sets and Browser are icons on the right-pane header. The mode tab uses the Crusader Strike logo. A gear browser (dungeon filter, gear slot, item name or item ID) is wired to an empty Atlas-shaped adapter plus one Forever overlay example. No equip path. See `docs/character-gear-tab.md`.
+
+### Fixed
+- **Character gear tab layout and taint:** icons sit on the right-pane header instead of over the portrait and level line. `ShowSubFrame` is a `hooksecurefunc` post-hook, enter work is deferred with `C_Timer.After(0)`, and `RefreshDisplay` is not called. PaperDoll slots use `HookScript`. Clicking a slot opens the browser filtered to that gear slot.
 
 ## 0.3.5 (WoW Forever)
 

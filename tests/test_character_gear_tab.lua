@@ -85,12 +85,29 @@ describe("character gear tab scaffold", function()
     ok(equipHidden)
     ok(_G.PaperDollFrame.shown)
 
+    local setsIcon = _G.CrusaderStrikeGearSetsIcon
+    local browserIcon = _G.CrusaderStrikeGearBrowserIcon
+    ok(setsIcon ~= nil)
+    ok(browserIcon ~= nil)
+    eq(setsIcon._csIcon, "Interface\\Icons\\INV_Misc_Gear_01")
+    eq(browserIcon._csIcon, "Interface\\Icons\\INV_Misc_Bag_08")
+    eq(setsIcon:GetText() or "", "")
+    eq(browserIcon:GetText() or "", "")
+    eq(setsIcon.tooltipText, "Gear Sets")
+    eq(browserIcon.tooltipText, "Browser")
+    eq(tabs[2]._csIcon, "Interface\\AddOns\\CrusaderStrike\\assets\\logo.tga")
+    ok(_G._CS_HookSecureCount and _G._CS_HookSecureCount > 0)
+
     local handler = head:GetScript("OnClick")
     handler(head, "LeftButton")
-    eq(clicked, 0)
-    eq(UI.GetPreview().activeSlot, "head")
-    ok(UI.AssignPreviewItem(272999))
+    -- Blizzard's original click still runs (HookScript, not SetScript).
+    eq(clicked, 1)
     local preview = UI.GetPreview()
+    eq(preview.activeSlot, "head")
+    eq(preview.gearSlot, "head")
+    eq(preview.view, "browser")
+    ok(UI.AssignPreviewItem(272999))
+    preview = UI.GetPreview()
     eq(preview.slots.head, 272999)
     eq(preview.filled, 1)
 
@@ -98,7 +115,7 @@ describe("character gear tab scaffold", function()
     eq(UI.GetPreview().active, false)
     eq(_G.CrusaderStrikeCharacterGearFrame:IsShown(), false)
     head:GetScript("OnClick")(head, "LeftButton")
-    eq(clicked, 1)
+    eq(clicked, 2)
 
     _G.CharacterFrame = prevChar
     _G.PaperDollFrame = prevPaper
