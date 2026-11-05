@@ -16,6 +16,8 @@ Logic\Idempotency.lua
 Logic\Encoder.lua
 Logic\RunLifecycle.lua
 Logic\PvpHistory.lua
+Logic\Detection.lua
+Logic\DebugEvents.lua
 Core.lua
 DungeonLog.lua
 Export.lua

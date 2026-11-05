@@ -19,6 +19,8 @@ dofile(addon_root .. "Logic/Idempotency.lua")
 dofile(addon_root .. "Logic/Encoder.lua")
 dofile(addon_root .. "Logic/RunLifecycle.lua")
 dofile(addon_root .. "Logic/PvpHistory.lua")
+dofile(addon_root .. "Logic/Detection.lua")
+dofile(addon_root .. "Logic/DebugEvents.lua")
 
 local passed, failed = 0, 0
 local current = "?"
@@ -69,7 +71,12 @@ local files = {
   "test_bosses.lua",
   "test_pvp.lua",
   "test_pvp_events.lua",
+  "test_detection.lua",
 }
+
+-- Load frame-facing modules for handler tests (CreateFrame stubbed in mock_wow).
+dofile(addon_root .. "Core.lua")
+dofile(addon_root .. "DungeonLog.lua")
 
 io.write("CrusaderStrike tests (Lua " .. _VERSION .. ")\n")
 for _, f in ipairs(files) do

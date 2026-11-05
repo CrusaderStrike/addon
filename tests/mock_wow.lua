@@ -79,6 +79,13 @@ end
 _G.CombatLogGetCurrentEventInfo = function()
   return nil
 end
+_G.UnitIsDead = function() return false end
+_G.UnitIsDeadOrGhost = function() return false end
+_G.UnitGUID = function(unit)
+  if unit == "player" then return "Player-1-00000001" end
+  return nil
+end
+_G.GetBuildInfo = function() return "1.60.1", "70790", "Nov 4 2026", 16001 end
 -- TODO(unverified): Forever reportedly reports WOW_PROJECT_MAINLINE (1).
 _G.WOW_PROJECT_ID = 1
 _G.WOW_PROJECT_MAINLINE = 1
@@ -96,6 +103,8 @@ function M.load_addon()
     "Logic/Encoder.lua",
     "Logic/RunLifecycle.lua",
     "Logic/PvpHistory.lua",
+    "Logic/Detection.lua",
+    "Logic/DebugEvents.lua",
     "Core.lua",
     "DungeonLog.lua",
     "Export.lua",

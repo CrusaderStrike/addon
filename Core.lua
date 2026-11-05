@@ -171,9 +171,37 @@ SlashCmdList["CRUSADERSTRIKE"] = function(msg)
       end
     end
   elseif cmd == "debug" then
-    CrusaderStrikeDB.settings.debug = not CrusaderStrikeDB.settings.debug
-    CS.Print("debug=" .. tostring(CrusaderStrikeDB.settings.debug))
+    local sub, rest2 = (rest or ""):match("^(%S+)%s*(.*)$")
+    sub = sub and sub:lower() or nil
+    if sub == "events" then
+      local mode = (rest2 or ""):match("^(%S+)")
+      mode = mode and mode:lower() or "on"
+      if not CrusaderStrikeDebugEvents then
+        CS.Print("debug events unavailable")
+        return
+      end
+      if mode == "on" then
+        CrusaderStrikeDebugEvents.SetEnabled(true)
+        CS.Print("debug events ON (buffer capped at 500). Enter a dungeon, kill a boss, then /cs debug events dump")
+      elseif mode == "off" then
+        CrusaderStrikeDebugEvents.SetEnabled(false)
+        CS.Print("debug events OFF")
+      elseif mode == "dump" then
+        local summary = CrusaderStrikeDebugEvents.Summarize(60)
+        for line in summary:gmatch("[^\n]+") do
+          CS.Print(line)
+        end
+      elseif mode == "clear" then
+        CrusaderStrikeDebugEvents.Clear()
+        CS.Print("debug events cleared")
+      else
+        CS.Print("usage: /cs debug events [on|off|dump|clear]")
+      end
+    else
+      CrusaderStrikeDB.settings.debug = not CrusaderStrikeDB.settings.debug
+      CS.Print("debug=" .. tostring(CrusaderStrikeDB.settings.debug) .. " (use /cs debug events on for Forever event capture)")
+    end
   else
-    CS.Print("Commands: /cs export [key] | /cs status | /cs pvp | /cs debug")
+    CS.Print("Commands: /cs export [key] | /cs status | /cs pvp | /cs debug | /cs debug events [on|off|dump]")
   end
 end
