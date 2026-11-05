@@ -342,16 +342,46 @@ local function record_party_death(unit, name, realm)
   return true
 end
 
--- Poll path: alive->dead edge via UnitIsDeadOrGhost (counts once; rez clears).
+local PARTY_UNITS = { "player", "party1", "party2", "party3", "party4" }
+
+-- Stable per-character key so slot shifts (party2 -> party1) don't re-count.
+local function death_key(unit)
+  local guid = UnitGUID and UnitGUID(unit)
+  if guid and guid ~= "" then
+    return "guid:" .. guid
+  end
+  local name, realm = unit_name_realm(unit)
+  if name then
+    return "name:" .. name .. "-" .. (realm or "")
+  end
+  return nil
+end
+DL.DeathKey = death_key
+
+-- Mark already-dead/ghost members as dead WITHOUT recording a death
+-- (after /reload, re-zone, or a roster change / join).
+function DL.SeedDeathState()
+  for _, unit in ipairs(PARTY_UNITS) do
+    if UnitExists and UnitExists(unit) then
+      local key = death_key(unit)
+      if key and CrusaderStrikeDetection.IsUnitDeadOrGhost(unit) then
+        deathTracker.dead[key] = true
+      end
+    end
+  end
+end
+
+-- Alive->dead edge for one changed unit via UnitIsDeadOrGhost (counts once; rez clears).
 function DL.HandlePartyDeath(unit)
   if not (UnitExists and UnitExists(unit)) then
-    if deathTracker.dead[unit] then
-      CrusaderStrikeDetection.DeathTransition(deathTracker, unit, false, now())
-    end
+    return false
+  end
+  local key = death_key(unit)
+  if not key then
     return false
   end
   local isDead = CrusaderStrikeDetection.IsUnitDeadOrGhost(unit)
-  local transition = CrusaderStrikeDetection.DeathTransition(deathTracker, unit, isDead, now())
+  local transition = CrusaderStrikeDetection.DeathTransition(deathTracker, key, isDead, now())
   if transition ~= "death" then
     return false
   end
@@ -364,7 +394,8 @@ function DL.HandlePlayerDeadEvent()
   if not name then
     return false
   end
-  local transition = CrusaderStrikeDetection.DeathTransition(deathTracker, "player", true, now())
+  local key = death_key("player")
+  local transition = CrusaderStrikeDetection.DeathTransition(deathTracker, key, true, now())
   if transition ~= "death" then
     return false
   end
@@ -373,12 +404,6 @@ function DL.HandlePlayerDeadEvent()
     CS.DebugEvents.Note("PLAYER_DEAD", now(), { name = name, realm = realm })
   end
   return ok
-end
-
-function DL.PollPartyDeathRez()
-  for _, unit in ipairs({ "player", "party1", "party2", "party3", "party4" }) do
-    DL.HandlePartyDeath(unit)
-  end
 end
 
 -- Debug / guarded only: never used for production boss/death detection.
@@ -402,22 +427,19 @@ safe_register(frame, "ENCOUNTER_END")
 safe_register(frame, "BOSS_KILL")
 safe_register(frame, "INSTANCE_ENCOUNTER_ENGAGE_UNIT")
 safe_register(frame, "PLAYER_DEAD")
-safe_register(frame, "UNIT_HEALTH")
-safe_register(frame, "UNIT_FLAGS")
 -- CLEU: may error on Forever registration; probe only for /cs debug events.
 cleuRegistered = safe_register(frame, "COMBAT_LOG_EVENT_UNFILTERED")
 
--- UNIT_* needs unit tokens on some clients
-if frame.RegisterUnitEvent then
-  pcall(function()
-    for _, u in ipairs({ "player", "party1", "party2", "party3", "party4", "boss1", "boss2", "boss3", "boss4", "boss5" }) do
-      frame:RegisterUnitEvent("UNIT_HEALTH", u)
-      frame:RegisterUnitEvent("UNIT_FLAGS", u)
-    end
-  end)
+-- UNIT_HEALTH/UNIT_FLAGS only for player, party1-4, boss1-5. Prefer
+-- RegisterUnitEvent; otherwise register globally and filter in OnEvent.
+local WATCHED_UNITS = {}
+for _, u in ipairs({ "player", "party1", "party2", "party3", "party4", "boss1", "boss2", "boss3", "boss4", "boss5" }) do
+  WATCHED_UNITS[u] = true
 end
+DL.WATCHED_UNITS = WATCHED_UNITS
 
-frame:SetScript("OnEvent", function(_, event, arg1, arg2, arg3, arg4, arg5, ...)
+
+local function on_event(_, event, arg1, arg2, arg3, arg4, arg5, ...)
   if event == "COMBAT_LOG_EVENT_UNFILTERED" then
     DL.OnCombatLogEventUnfiltered()
   elseif event == "ENCOUNTER_START" then
@@ -443,19 +465,20 @@ frame:SetScript("OnEvent", function(_, event, arg1, arg2, arg3, arg4, arg5, ...)
     DL.HandlePlayerDeadEvent()
   elseif event == "UNIT_HEALTH" or event == "UNIT_FLAGS" then
     local unit = arg1
-    if not unit then
+    if not unit or not WATCHED_UNITS[unit] then
       return
     end
     if unit:match("^boss%d$") then
       if CrusaderStrikeDetection.IsUnitDeadOrGhost(unit) or (UnitIsDead and UnitIsDead(unit)) then
         DL.HandleBossUnitDead(unit)
       end
-    elseif unit == "player" or unit:match("^party%d$") then
-      DL.PollPartyDeathRez()
+    else
+      DL.HandlePartyDeath(unit)
     end
   elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
     engagedBosses = {}
     deathTracker = CrusaderStrikeDetection.NewDeathTracker(5)
+    DL.SeedDeathState()
     if in_party_dungeon() then
       DL.TryStartOrResume()
     else
@@ -467,6 +490,7 @@ frame:SetScript("OnEvent", function(_, event, arg1, arg2, arg3, arg4, arg5, ...)
       end
     end
   elseif event == "GROUP_ROSTER_UPDATE" then
+    DL.SeedDeathState()
     local run = CS.GetActiveRun()
     if run and run.status == "in_progress" then
       run.party = snapshot_party()
@@ -474,9 +498,37 @@ frame:SetScript("OnEvent", function(_, event, arg1, arg2, arg3, arg4, arg5, ...)
       CS.StoreRun(run)
     end
   end
-end)
+end
+frame:SetScript("OnEvent", on_event)
+
+-- RegisterUnitEvent takes at most two units and each call replaces the
+-- previous unit filter, so use one small frame per unit pair. If the API is
+-- missing or errors, register globally and filter by WATCHED_UNITS in on_event.
+local function register_unit_events()
+  local units = { "player", "party1", "party2", "party3", "party4", "boss1", "boss2", "boss3", "boss4", "boss5" }
+  if frame.RegisterUnitEvent then
+    local ok = pcall(function()
+      for i = 1, #units, 2 do
+        local uf = CreateFrame("Frame")
+        uf:RegisterUnitEvent("UNIT_HEALTH", units[i], units[i + 1])
+        uf:RegisterUnitEvent("UNIT_FLAGS", units[i], units[i + 1])
+        uf:SetScript("OnEvent", on_event)
+      end
+    end)
+    if ok then
+      return "unit"
+    end
+  end
+  safe_register(frame, "UNIT_HEALTH")
+  safe_register(frame, "UNIT_FLAGS")
+  return "global"
+end
+DL._unitEventMode = register_unit_events()
+DL._onEvent = on_event
+
 
 function DL.OnLogin()
+  DL.SeedDeathState()
   if in_party_dungeon() then
     DL.TryStartOrResume()
   else

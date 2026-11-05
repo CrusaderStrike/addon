@@ -145,10 +145,10 @@ describe("dungeon log encounter handlers", function()
     ok(not CrusaderStrike.DungeonLog.HandlePlayerDeadEvent()) -- double-fire / still dead
     eq(#run.deaths, 1)
     -- rez then die again after debounce
-    CrusaderStrikeDetection.DeathTransition(CrusaderStrike.DungeonLog._deathTracker(), "player", false, 2000)
+    CrusaderStrikeDetection.DeathTransition(CrusaderStrike.DungeonLog._deathTracker(), CrusaderStrike.DungeonLog.DeathKey("player"), false, 2000)
     -- advance time past debounce by poking tracker lastDeathAt
     local tr = CrusaderStrike.DungeonLog._deathTracker()
-    tr.lastDeathAt["player"] = 0
+    tr.lastDeathAt[CrusaderStrike.DungeonLog.DeathKey("player")] = 0
     ok(CrusaderStrike.DungeonLog.HandlePlayerDeadEvent())
     eq(#run.deaths, 2)
   end)
@@ -166,5 +166,100 @@ describe("debug events buffer", function()
     ok(s:find("debugEvents n=500"))
     ok(s:find("ENCOUNTER_END"))
     CrusaderStrikeDebugEvents.SetEnabled(false)
+  end)
+end)
+
+describe("party death keying and seeding", function()
+  local DL = CrusaderStrike.DungeonLog
+  local saved = {}
+  local roster, dead
+
+  local function install()
+    for _, k in ipairs({ "UnitName", "UnitExists", "UnitGUID", "UnitIsDeadOrGhost" }) do
+      saved[k] = _G[k]
+    end
+    _G.UnitExists = function(u) return roster[u] ~= nil end
+    _G.UnitName = function(u)
+      local c = roster[u]
+      if c then return c.name, c.realm end
+      return nil
+    end
+    _G.UnitGUID = function(u)
+      local c = roster[u]
+      return c and c.guid or nil
+    end
+    _G.UnitIsDeadOrGhost = function(u)
+      local c = roster[u]
+      return c and dead[c.guid] or false
+    end
+  end
+  local function restore()
+    for k, v in pairs(saved) do _G[k] = v end
+  end
+  local function boot()
+    CrusaderStrikeDB = { schemaVersion = 2, settings = { debug = false, resumeWindowSec = 10800 }, companion = {} }
+    CrusaderStrikeCharDB = { schemaVersion = 2, gameVersion = "forever", runs = {},
+      pvp = { world = {}, battlegrounds = {}, seq = 0 } }
+    DL._resetDeathTracker()
+    local run = CrusaderStrikeRunLifecycle.Start({
+      realm = "CrusaderStrike", character = "Tester", gameVersion = "forever",
+      instanceId = 36, instanceName = "The Deadmines", difficulty = 1, difficultyName = "Normal",
+      startTimeUnix = 1000, party = {},
+    })
+    CrusaderStrike.StoreRun(run)
+    return run
+  end
+  local A = { name = "Alice", realm = "CrusaderStrike", guid = "Player-1-0000000A" }
+  local B = { name = "Bob", realm = "CrusaderStrike", guid = "Player-1-0000000B" }
+  local P = { name = "Tester", realm = "CrusaderStrike", guid = "Player-1-00000001" }
+
+  it("does not count an already-dead member after /reload (seeded)", function()
+    install()
+    roster = { player = P, party1 = A, party2 = B }
+    dead = { [B.guid] = true }
+    local run = boot() -- tracker reset == /reload
+    DL.SeedDeathState()
+    ok(not DL.HandlePartyDeath("party2"))
+    ok(not DL.HandlePartyDeath("party2")) -- ghost UNIT_HEALTH ticks
+    eq(#run.deaths, 0)
+    -- rez then die again later: counted once
+    dead[B.guid] = nil
+    ok(not DL.HandlePartyDeath("party2"))
+    DL._deathTracker().lastDeathAt["guid:" .. B.guid] = 0
+    dead[B.guid] = true
+    ok(DL.HandlePartyDeath("party2"))
+    eq(#run.deaths, 1)
+    restore()
+  end)
+
+  it("does not recount a dead member who shifts slots after someone leaves", function()
+    install()
+    roster = { player = P, party1 = A, party2 = B }
+    dead = {}
+    local run = boot()
+    DL.SeedDeathState()
+    dead[B.guid] = true
+    ok(DL.HandlePartyDeath("party2"))
+    eq(#run.deaths, 1)
+    -- Alice leaves; Bob (still dead) shifts party2 -> party1
+    roster = { player = P, party1 = B }
+    DL.SeedDeathState() -- GROUP_ROSTER_UPDATE
+    ok(not DL.HandlePartyDeath("party1"))
+    ok(not DL.HandlePartyDeath("party2"))
+    eq(#run.deaths, 1)
+    restore()
+  end)
+
+  it("ignores UNIT_* events for unwatched units and keys by GUID", function()
+    ok(DL.WATCHED_UNITS["party4"] and DL.WATCHED_UNITS["boss5"] and DL.WATCHED_UNITS["player"])
+    ok(not DL.WATCHED_UNITS["target"])
+    ok(not DL.WATCHED_UNITS["nameplate1"])
+    ok(not DL.WATCHED_UNITS["raid1"])
+    install()
+    roster = { party1 = A }
+    eq(DL.DeathKey("party1"), "guid:" .. A.guid)
+    roster = { party1 = { name = "NoGuid", realm = "X" } }
+    eq(DL.DeathKey("party1"), "name:NoGuid-X")
+    restore()
   end)
 end)

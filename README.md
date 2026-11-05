@@ -47,7 +47,7 @@ These get revisited if a later Forever build unprotects the combat log.
 Forever cannot read the combat log from addon code (`CombatLogGetCurrentEventInfo`
 missing / secure). Boss kills use `ENCOUNTER_END` (`success=1`) and `BOSS_KILL` matched
 to verified `DungeonEncounter` IDs, with a `boss1`–`boss5` `UnitIsDead` fallback.
-Party deaths use `PLAYER_DEAD` plus `UNIT_HEALTH`/`UNIT_FLAGS` on `player`/`party1-4`
+Party deaths use `PLAYER_DEAD` plus `UNIT_HEALTH`/`UNIT_FLAGS` on `player`/`party1-4` (deaths are keyed per character by GUID, falling back to name-realm; members already dead or ghosted after a /reload, a re-zone or a roster change are seeded and not counted again)
 (each death counted once across release/rez). Wipes (`ENCOUNTER_END` success=0) are
 not kills. `/cs debug events [on|off|dump]` records whether candidate events fire
 in-game — see [docs/forever-event-check.md](docs/forever-event-check.md).
