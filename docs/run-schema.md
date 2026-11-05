@@ -91,7 +91,7 @@ Examples:
 | `startedAt` / `endedAt` | int/null | start yes | Unix seconds |
 | `durationSec` | int/null | no | `endedAt - startedAt` when closed |
 | `completed` | bool | yes | Final boss from bundled table killed |
-| `status` | string | yes | `in_progress` \| `closed` \| `abandoned` \| `completed` |
+| `status` | string | yes | `in_progress` \| `closed` \| `completed` (matches platform#18 `RunUpload.status`). The local-only `abandoned` status is **never** exported; abandoned runs export as `closed` with `completed: false`. |
 | `party[]` | array | yes | Snapshot at start (refreshed on roster change) |
 | `bosses[]` | array | yes | Unique by `npcId` |
 | `deaths[]` | array | yes | Party player UNIT_DIED events |
@@ -163,8 +163,8 @@ A companion uploader can parse these Lua tables, skip keys already ACK'd, and PO
    - Creature GUID NPC id in bundled Forever boss table (`Data/Bosses.lua`) → boss kill; final boss ⇒ `completed=true`.
    - Party player death → `deaths[]`.
 4. Leave instance cleanly → `status=closed` (or remains `completed`), clear `activeRunKey`, keep row in `runs`.
-5. Stale `in_progress` cleanup (addon#8): on `PLAYER_LOGIN` / `PLAYER_ENTERING_WORLD` / zone change, any `in_progress` run that does **not** match the current party instance (or whose `lastSeenAt` is outside `resumeWindowSec`) is closed as `status=abandoned`, `completed=false`, `endedAt=lastSeenAt` (no fake duration from a later login). `/reload` or reconnect inside the same instance within the window resumes; abandoned runs never resume.
-6. Platform ingest (platform#18): a later fuller export with the same `addonRunId` upserts an unfinished row, so an abandoned paste can be replaced if the player later finishes and re-exports a completed run under a **new** key (new `startedAt`). Same-key richer updates still apply while a run stays unfinished under one id.
+5. Stale `in_progress` cleanup (addon#8): on `PLAYER_LOGIN` / `PLAYER_ENTERING_WORLD` / zone change, any `in_progress` run that does **not** match the current party instance (or whose `lastSeenAt` is outside `resumeWindowSec`) is marked `status=abandoned` in SavedVariables, `completed=false`, `endedAt=lastSeenAt` (no fake duration from a later login). `abandoned` is **local-only**: the export always sends such runs as `status: "closed"`, `completed: false`, so `abandoned` never appears in an export string or API payload. `lastSeenAt` is also SavedVariables-only and is not exported (`RunUpload` does not define it). `/reload` or reconnect inside the same instance within the window resumes; abandoned runs never resume.
+6. Platform ingest (platform#18): uploads are keyed by `addonRunId`. A same-key superset re-upload of an abandoned run (exported as `closed`, `completed=false`) upserts the stored row and may move `endedAt` forward; the platform allows this only while `completed=false`. If the player later runs the dungeon again, that is a **new** key (new `startedAt`): the abandoned run stays on the platform and a separate new run is added. It does not replace the abandoned one.
 
 ## Open decisions for Platform Dev
 
@@ -177,5 +177,4 @@ A companion uploader can parse these Lua tables, skip keys already ACK'd, and PO
 
 | schemaVersion | Notes |
 |---------------|-------|
-| 1 | Initial WoW Forever dungeon run schema + `CSRUN1` export |
-| 1 | addon#8: `abandoned` status for stale hearth/crash runs; `lastSeenAt` (SavedVariables only) |
+| 1 | Initial WoW Forever dungeon run schema + `CSRUN1` export. Amended by addon#8 (no wire change): local-only `abandoned` status and `lastSeenAt` in SavedVariables; abandoned runs export as `closed` with `completed: false`. |

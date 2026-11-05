@@ -209,8 +209,19 @@ function CrusaderStrikeRunLifecycle.ReconcileStale(runs, opts)
   return { abandoned = abandoned, kept = kept }
 end
 
+-- Map local (SavedVariables) status to the platform API enum
+-- (platform#18: in_progress | closed | completed). "abandoned" is local-only
+-- and is exported as "closed" with completed=false.
+function CrusaderStrikeRunLifecycle.ExportStatus(run)
+  if run.status == "abandoned" then
+    return "closed"
+  end
+  return run.status
+end
+
 -- Convert a stored run into the public export / platform payload shape.
 function CrusaderStrikeRunLifecycle.ToExportTable(run)
+  local abandoned = run.status == "abandoned"
   return {
     schemaVersion = run.schemaVersion or SCHEMA_VERSION,
     gameVersion = run.gameVersion,
@@ -227,8 +238,8 @@ function CrusaderStrikeRunLifecycle.ToExportTable(run)
     startedAt = run.startedAt,
     endedAt = run.endedAt,
     durationSec = run.durationSec,
-    completed = run.completed and true or false,
-    status = run.status,
+    completed = (not abandoned) and (run.completed and true or false) or false,
+    status = CrusaderStrikeRunLifecycle.ExportStatus(run),
     party = run.party or {},
     bosses = run.bosses or {},
     deaths = run.deaths or {},
