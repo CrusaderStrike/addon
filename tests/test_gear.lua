@@ -1132,7 +1132,7 @@ describe("sync API/session error handling (#41)", function()
   end)
 end)
 
-describe("platform#51 error envelopes (#45)", function()
+describe("platform#51/#52 error envelopes (#45)", function()
   local GE = CrusaderStrikeGearEncoder
 
   it("ParseErrorEnvelope maps unauthenticated / session_expired / upstream_unavailable", function()
@@ -1246,6 +1246,121 @@ describe("platform#51 error envelopes (#45)", function()
     eq(s3.retry_after, 45)
     eq(list.last_sync_error.retry_after, 45)
     ok(s3.message:find("45", 1, true) ~= nil)
+    eq(#CrusaderStrikeGearSets.PeekPendingOps(db, list.local_id), n)
+  end)
+
+  it("ParseErrorEnvelope maps rate_limited / version_mismatch / internal_error + request_id", function()
+    local rl = GE.ParseErrorEnvelope({
+      error = {
+        code = "rate_limited",
+        message = "slow down",
+        retryable = true,
+        request_id = "req_rate_1",
+      },
+    }, { http_status = 429, headers = { ["Retry-After"] = "12" } })
+    eq(rl.code, "rate_limited")
+    eq(rl.retryable, true)
+    eq(rl.retry_after, 12)
+    eq(rl.request_id, "req_rate_1")
+    ok(rl.message:find("rate limit", 1, true) ~= nil)
+    ok(rl.message:find("12", 1, true) ~= nil)
+
+    local vm = GE.ParseErrorEnvelope({
+      error = {
+        code = "version_mismatch",
+        message = "stale",
+        retryable = true,
+        request_id = "req_ver_2",
+      },
+    }, { http_status = 409 })
+    eq(vm.code, "version_mismatch")
+    eq(vm.retryable, true)
+    eq(vm.request_id, "req_ver_2")
+    ok(vm.message:find("changed on the website", 1, true) ~= nil)
+
+    local ie = GE.ParseErrorEnvelope({
+      error = {
+        code = "internal_error",
+        message = "boom",
+        retryable = true,
+        request_id = "req_int_3",
+      },
+    }, { http_status = 500, retry_after = 8 })
+    eq(ie.code, "internal_error")
+    eq(ie.retryable, true)
+    eq(ie.retry_after, 8)
+    eq(ie.request_id, "req_int_3")
+    ok(ie.message:find("unexpected error", 1, true) ~= nil)
+    ok(ie.message:find("8", 1, true) ~= nil)
+
+    -- request_id from meta when envelope omits it
+    local m = GE.ParseErrorEnvelope(
+      { error = { code = "unauthenticated", retryable = false } },
+      { request_id = "req_meta_only" }
+    )
+    eq(m.request_id, "req_meta_only")
+  end)
+
+  it("infers rate_limited / internal_error from HTTP status", function()
+    local rl = GE.ParseErrorEnvelope({}, { http_status = 429, headers = { ["Retry-After"] = "3" } })
+    eq(rl.code, "rate_limited")
+    eq(rl.retryable, true)
+    eq(rl.retry_after, 3)
+
+    local ie = GE.ParseErrorEnvelope({ error = { message = "oops" } }, { http_status = 500 })
+    eq(ie.code, "internal_error")
+    eq(ie.retryable, true)
+
+    local vm = GE.ParseErrorEnvelope(
+      { error = { message = "version conflict" } },
+      { http_status = 409 }
+    )
+    eq(vm.code, "version_mismatch")
+  end)
+
+  it("ApplyOpsResult routes rate_limited / version_mismatch / internal_error (pending kept)", function()
+    local db = { gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} } }
+    local list = CrusaderStrikeGearSets.CreateSet(db, { name = "Env52", type = "max_level" }, 60)
+    CrusaderStrikeGearSets.SetSlot(db, list.local_id, "head", 12345)
+    local n = #CrusaderStrikeGearSets.PeekPendingOps(db, list.local_id)
+    CrusaderStrikeGearSets.BeginSync(db, list.local_id)
+
+    local s1 = CrusaderStrikeGearSets.ApplyOpsResult(db, list.local_id, {
+      error = {
+        code = "rate_limited",
+        message = "slow",
+        retryable = true,
+        request_id = "req_apply_rl",
+      },
+      http_status = 429,
+      headers = { ["Retry-After"] = "20" },
+    })
+    eq(s1.code, "rate_limited")
+    eq(s1.retryable, true)
+    eq(s1.retry_after, 20)
+    eq(s1.request_id, "req_apply_rl")
+    eq(list.last_sync_error.request_id, "req_apply_rl")
+    eq(#CrusaderStrikeGearSets.PeekPendingOps(db, list.local_id), n)
+    ok(s1.message:find("20", 1, true) ~= nil)
+
+    CrusaderStrikeGearSets.BeginSync(db, list.local_id)
+    local s2 = CrusaderStrikeGearSets.ApplyOpsResult(db, list.local_id, {
+      error = { code = "version_mismatch", retryable = true, request_id = "req_apply_vm" },
+      status = 409,
+    })
+    eq(s2.code, "version_mismatch")
+    eq(s2.request_id, "req_apply_vm")
+    eq(#CrusaderStrikeGearSets.PeekPendingOps(db, list.local_id), n)
+
+    CrusaderStrikeGearSets.BeginSync(db, list.local_id)
+    local s3 = CrusaderStrikeGearSets.ApplyOpsResult(db, list.local_id, {
+      error = { code = "internal_error", retryable = true, request_id = "req_apply_ie" },
+      http_status = 500,
+    })
+    eq(s3.code, "internal_error")
+    eq(s3.retryable, true)
+    eq(s3.request_id, "req_apply_ie")
+    eq(list.last_sync_error.code, "internal_error")
     eq(#CrusaderStrikeGearSets.PeekPendingOps(db, list.local_id), n)
   end)
 

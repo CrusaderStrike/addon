@@ -5,7 +5,7 @@ All notable changes to CrusaderStrike (World of Warcraft: Forever only).
 ## Unreleased
 
 ### Changed
-- **Consume platform#51 error envelopes (#45):** `ParseErrorEnvelope` maps `unauthenticated` / `session_expired` / `upstream_unavailable` (plus legacy codes) into FailSync / gear-sets UX; honors `retryable` and `Retry-After`. Pending ops kept; syncing cleared. Refs #26.
+- **Consume platform#51/#52 error envelopes (#45):** `ParseErrorEnvelope` maps `unauthenticated` / `session_expired` / `upstream_unavailable` / `rate_limited` / `version_mismatch` / `internal_error` (plus legacy codes) into FailSync / gear-sets UX; stores `request_id` when present; honors `retryable` and `Retry-After`. Pending ops kept; syncing cleared. Locked to CrusaderStrike/platform#52 (`6ecf719`). Refs #26.
 
 ### Fixed
 - CHANGELOG: restore `(WoW Forever)` on 0.3.2 / 0.3.3 headings; Option A cleanup note cites web#47 (PR), not web#46 (issue).

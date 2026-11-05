@@ -93,8 +93,11 @@ local REJECT_MESSAGES = {
   token_expired = "Your website session expired. Sign in again on crusaderstrike.com; local gear changes are kept.",
   unauthorized = "Not signed in to Crusader Strike. Sign in on the website; local gear changes are kept.",
   unauthenticated = "Not signed in to Crusader Strike. Sign in on the website; local gear changes are kept.",
-  -- platform#51 stable codes (gear-lists /ops /sync, selection, items)
+  -- platform#51/#52 stable codes (gear-lists /ops /sync, selection, items)
   upstream_unavailable = "Crusader Strike or Battle.net is temporarily unavailable. Gear changes are saved locally and will retry.",
+  rate_limited = "Crusader Strike rate limit reached. Gear changes are saved locally; try again soon.",
+  version_mismatch = "This gear set changed on the website. Local changes are kept — sync again to reload and retry.",
+  internal_error = "Crusader Strike hit an unexpected error. Gear changes are saved locally and will retry.",
 }
 
 function GE.RejectMessage(code)
@@ -147,7 +150,9 @@ local function default_retryable(code)
     return false
   end
   if code == "upstream_unavailable" or code == "api_unavailable"
-      or code == "api_down" or code == "network_error" then
+      or code == "api_down" or code == "network_error"
+      or code == "rate_limited" or code == "version_mismatch"
+      or code == "internal_error" then
     return true
   end
   return false
@@ -163,22 +168,38 @@ local function infer_code_from_status(status, hint)
     end
     return "unauthenticated"
   end
+  if status == 429 then
+    return "rate_limited"
+  end
+  if status == 500 then
+    return "internal_error"
+  end
   if status == 502 or status == 503 or status == 504 then
     return "upstream_unavailable"
+  end
+  -- 409 has several stable codes (version_mismatch, character_not_displayed,
+  -- list_limit_reached); only infer when the hint clearly points at version.
+  if status == 409 and type(hint) == "string" then
+    local h = string.lower(hint)
+    if h:find("version", 1, true) or h:find("mismatch", 1, true) or h:find("concurrent", 1, true) then
+      return "version_mismatch"
+    end
   end
   return nil
 end
 
 --[[
-  Normalize platform#51 error envelopes for FailSync / companion /sync.
+  Normalize platform#51/#52 error envelopes for FailSync / companion /sync.
 
-  Contract: {"error": {"code": "<stable_code>", "message": "...", "retryable": bool}}
+  Contract (platform#52 / docs/api-errors.md):
+    {"error": {"code": "<stable_code>", "message": "...", "retryable": bool, "request_id": "req_…"}}
   Also tolerates legacy shapes (string code, {reason=}, bare http_status / Retry-After).
 
   input: string code | error table | full body with .error | nil
-  meta:  optional { http_status|status=, retry_after=, headers= }
+  meta:  optional { http_status|status=, retry_after=, headers=, request_id=, retryable= }
 
-  Returns { code, message, retryable, retry_after } (retry_after may be nil).
+  Returns { code, message, retryable, retry_after, request_id }
+  (retry_after / request_id may be nil).
 ]]
 function GE.ParseErrorEnvelope(input, meta)
   if type(meta) ~= "table" then
@@ -256,6 +277,17 @@ function GE.ParseErrorEnvelope(input, meta)
     retryable = default_retryable(code)
   end
 
+  local request_id
+  if type(meta.request_id) == "string" and #meta.request_id > 0 then
+    request_id = meta.request_id
+  end
+  if request_id == nil and type(err) == "table" and type(err.request_id) == "string" and #err.request_id > 0 then
+    request_id = err.request_id
+  end
+  if request_id == nil and type(input) == "table" and type(input.request_id) == "string" and #input.request_id > 0 then
+    request_id = input.request_id
+  end
+
   local message = GE.SyncErrorMessage(code)
   -- Prefer catalog copy for known codes; unknown codes may use server message.
   if REJECT_MESSAGES[code] == nil and server_message then
@@ -268,6 +300,12 @@ function GE.ParseErrorEnvelope(input, meta)
     elseif not retryable then
       message = "Crusader Strike or Battle.net is unavailable right now. Gear changes are saved locally; try again later."
     end
+  elseif code == "rate_limited" and retry_after ~= nil then
+    message = GE.SyncErrorMessage("rate_limited")
+      .. " Try again in " .. tostring(retry_after) .. " seconds."
+  elseif code == "internal_error" and retry_after ~= nil then
+    message = GE.SyncErrorMessage("internal_error")
+      .. " Try again in " .. tostring(retry_after) .. " seconds."
   end
 
   return {
@@ -275,6 +313,7 @@ function GE.ParseErrorEnvelope(input, meta)
     message = message,
     retryable = retryable,
     retry_after = retry_after,
+    request_id = request_id,
   }
 end
 

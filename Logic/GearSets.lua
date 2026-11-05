@@ -557,14 +557,20 @@ function G.ApplyOpsResult(charDB, local_id, result)
   if not list or type(result) ~= "table" then
     return nil, "validation"
   end
-  -- Top-level transport / auth failure from companion (platform#51 envelope or legacy).
+  -- Top-level transport / auth failure from companion (platform#51/#52 envelope or legacy).
   -- Do not touch pending_ops; clear syncing and surface a player-visible message.
   if result.error ~= nil then
-    return G.FailSync(charDB, local_id, result.error, {
+    local err = result.error
+    local request_id = result.request_id
+    if type(err) == "table" and type(err.request_id) == "string" then
+      request_id = request_id or err.request_id
+    end
+    return G.FailSync(charDB, local_id, err, {
       http_status = result.http_status or result.status,
       retry_after = result.retry_after,
       headers = result.headers,
       retryable = result.retryable,
+      request_id = request_id,
     })
   end
   list.pending_ops = list.pending_ops or {}
@@ -982,8 +988,8 @@ end
 
 --[[
   Fail a companion /sync attempt.
-  code_or_detail: platform#51 envelope / error table / string code (see ParseErrorEnvelope).
-  meta: optional { http_status, retry_after, headers, retryable }.
+  code_or_detail: platform#51/#52 envelope / error table / string code (see ParseErrorEnvelope).
+  meta: optional { http_status, retry_after, headers, retryable, request_id }.
   Keeps pending_ops; clears syncing; stores last_sync_error for UI.
 ]]
 function G.FailSync(charDB, local_id, code_or_detail, meta)
@@ -1015,6 +1021,7 @@ function G.FailSync(charDB, local_id, code_or_detail, meta)
     message = parsed.message,
     retryable = parsed.retryable,
     retry_after = parsed.retry_after,
+    request_id = parsed.request_id,
     at = now_iso(),
   }
   list.last_sync_error = err
@@ -1031,6 +1038,7 @@ function G.FailSync(charDB, local_id, code_or_detail, meta)
     message = parsed.message,
     retryable = parsed.retryable,
     retry_after = parsed.retry_after,
+    request_id = parsed.request_id,
     pending_kept = pending_n,
     syncing = false,
   }
