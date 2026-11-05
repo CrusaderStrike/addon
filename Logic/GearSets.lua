@@ -137,6 +137,35 @@ function G.ValidateUntilLevel(set_type, until_level, player_level)
   return true
 end
 
+-- Forever create defaults for /cs gearsets dropdown + form.
+-- Below 60: default leveling with until_level = min(60, level+1); max_level also allowed.
+-- At 60+: max_level only (no leveling / until_level).
+function G.CreateDefaults(player_level)
+  local lvl = 1
+  if type(player_level) == "number" then
+    lvl = math.floor(player_level)
+  end
+  if lvl >= 60 then
+    return { type = "max_level", until_level = nil, allow_leveling = false }
+  end
+  if lvl < 1 then
+    lvl = 1
+  end
+  return {
+    type = "leveling",
+    until_level = math.min(60, lvl + 1),
+    allow_leveling = true,
+  }
+end
+
+function G.AllowedSetTypes(player_level)
+  local d = G.CreateDefaults(player_level)
+  if d.allow_leveling then
+    return { "leveling", "max_level" }
+  end
+  return { "max_level" }
+end
+
 function G.NormalizeName(name)
   name = trim(name)
   if #name < 1 or #name > G.NAME_MAX or has_control(name) then
@@ -528,6 +557,15 @@ function G.ApplyOpsResult(charDB, local_id, result)
   if not list or type(result) ~= "table" then
     return nil, "validation"
   end
+  -- Top-level transport / auth failure from companion (API down, session expired).
+  -- Do not touch pending_ops; clear syncing and surface a player-visible message.
+  if result.error ~= nil then
+    local code = result.error
+    if type(result.error) == "table" then
+      code = result.error.code or result.error.reason or "api_unavailable"
+    end
+    return G.FailSync(charDB, local_id, code)
+  end
   list.pending_ops = list.pending_ops or {}
   if type(list.version) ~= "number" then
     list.version = 0
@@ -658,12 +696,25 @@ function G.ApplyOpsResult(charDB, local_id, result)
     ignored_out[i] = ig
   end
 
+  -- Successful ops response: leave retryable pending (rebuilt) but clear syncing flag.
+  list.syncing = false
+  if #errors == 0 and #(list.pending_ops or {}) == 0 then
+    list.last_sync_error = nil
+  elseif #errors > 0 then
+    list.last_sync_error = {
+      code = errors[1].reason,
+      message = errors[1].message,
+      at = now_iso(),
+    }
+  end
+
   return {
     version = list.version,
     acked = ack,
     rebuilt = wire_ops(rebuilt),
     errors = errors,
     ignored = ignored_out,
+    syncing = false,
   }
 end
 
@@ -910,6 +961,64 @@ function G.ApplyImport(charDB, payload)
   -- Clear local deleted queue once sync string applied (web has them).
   bucket.deleted = {}
   return true
+end
+
+--[[
+  Companion /sync transport lifecycle.
+  BeginSync marks the list as syncing (UI). FailSync clears syncing, keeps
+  pending_ops for retry, and stores a player-visible last_sync_error.
+  CompleteSync clears syncing + error after a clean ack with empty queue.
+]]
+function G.BeginSync(charDB, local_id)
+  local list = G.FindByLocalId(charDB, local_id)
+  if not list then
+    return nil, "validation"
+  end
+  list.syncing = true
+  list.last_sync_error = nil
+  return list
+end
+
+function G.FailSync(charDB, local_id, code)
+  local list = G.FindByLocalId(charDB, local_id)
+  if not list then
+    return nil, "validation"
+  end
+  list.syncing = false
+  local msg
+  if CrusaderStrikeGearEncoder and CrusaderStrikeGearEncoder.SyncErrorMessage then
+    msg = CrusaderStrikeGearEncoder.SyncErrorMessage(code)
+  elseif CrusaderStrikeGearEncoder and CrusaderStrikeGearEncoder.RejectMessage then
+    msg = CrusaderStrikeGearEncoder.RejectMessage(code)
+  else
+    msg = tostring(code or "api_unavailable")
+  end
+  local err = { code = code, message = msg, at = now_iso() }
+  list.last_sync_error = err
+  local bucket = G.EnsureDB(charDB)
+  if bucket then
+    bucket.last_sync_error = err
+  end
+  local pending_n = 0
+  if type(list.pending_ops) == "table" then
+    pending_n = #list.pending_ops
+  end
+  return {
+    code = code,
+    message = msg,
+    pending_kept = pending_n,
+    syncing = false,
+  }
+end
+
+function G.CompleteSync(charDB, local_id)
+  local list = G.FindByLocalId(charDB, local_id)
+  if not list then
+    return nil, "validation"
+  end
+  list.syncing = false
+  list.last_sync_error = nil
+  return list
 end
 
 function G.NowISO()
