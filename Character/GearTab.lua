@@ -87,6 +87,7 @@ UI.SLOT_BUTTONS = {
   { global = "CrusaderStrikeMainHandSlot", slot = "main_hand" },
   { global = "CrusaderStrikeSecondaryHandSlot", slot = "off_hand" },
   { global = "CrusaderStrikeRangedSlot", slot = "ranged" },
+  { global = "CrusaderStrikeAmmoSlot", slot = "ammo" },
   { global = "CrusaderStrikeTabardSlot", slot = "tabard" },
 }
 
@@ -137,6 +138,8 @@ local EMPTY_SLOT = {
   main_hand = "Interface\\PaperDoll\\UI-PaperDoll-Slot-MainHand",
   off_hand = "Interface\\PaperDoll\\UI-PaperDoll-Slot-SecondaryHand",
   ranged = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Ranged",
+  ammo = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Ammo",
+  relic = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Relic",
   tabard = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Tabard",
 }
 
@@ -159,6 +162,7 @@ local SLOT_LABEL = {
   main_hand = "Main Hand",
   off_hand = "Off Hand",
   ranged = "Ranged",
+  ammo = "Ammo",
   tabard = "Tabard",
 }
 
@@ -731,6 +735,10 @@ function UI.OnGearSlot(slotName, button)
   if not CrusaderStrikeGearSlots or not CrusaderStrikeGearSlots.IsValidName(slotName) then
     return
   end
+  local btn = slotButtons[slotName]
+  if btn and btn._csClassHidden then
+    return
+  end
   if button == "RightButton" then
     UI.UnequipSlot(slotName)
     return
@@ -1081,6 +1089,14 @@ end
 
 -- Where an equip location is allowed to land. Unknown locations are not blocked.
 local function loc_fits_slot(equipLoc, slot, classToken)
+  if classToken == "DRUID" and slot == "off_hand" then
+    -- Druids do not dual-wield. Off hand is holdable items only:
+    -- no shields, no INVTYPE_WEAPONOFFHAND, no generic one-handers.
+    if equipLoc == "INVTYPE_HOLDABLE" then
+      return true
+    end
+    return false, "wrong_slot"
+  end
   if MAINHAND_ONLY_LOC[equipLoc] then
     if slot == "main_hand" then
       return true
@@ -1112,6 +1128,40 @@ local function loc_fits_slot(equipLoc, slot, classToken)
     return false, "wrong_slot"
   end
   return true
+end
+
+local RELIC_SUB = { DRUID = 8, SHAMAN = 9, PALADIN = 7 } -- idol, totem, libram
+local WAND_CLASS = { PRIEST = true, MAGE = true, WARLOCK = true }
+local AMMO_CLASS = { HUNTER = true, WARRIOR = true, ROGUE = true }
+
+local function relic_sub(itemId)
+  if type(GetItemInfoInstant) ~= "function" then
+    return nil
+  end
+  local ok, _, _, _, _, _, _, subClassID = pcall(GetItemInfoInstant, itemId)
+  if ok and (subClassID == 7 or subClassID == 8 or subClassID == 9) then
+    return subClassID
+  end
+  return nil
+end
+
+local function ranged_slot_ok(classToken, itemId, equipLoc)
+  if RELIC_SUB[classToken] then
+    return equipLoc == "INVTYPE_RELIC" and relic_sub(itemId) == RELIC_SUB[classToken]
+  end
+  if WAND_CLASS[classToken] then
+    local rec = weapon_record(itemId)
+    return rec ~= nil and rec.subClassID == SUB.WAND
+  end
+  if AMMO_CLASS[classToken] then
+    if equipLoc == "INVTYPE_RELIC" or equipLoc == "INVTYPE_AMMO" then
+      return false
+    end
+    local rec = weapon_record(itemId)
+    local set = RANGED[classToken]
+    return rec ~= nil and set ~= nil and set[rec.subClassID] == true
+  end
+  return false
 end
 
 local function is_two_hand(rec)
@@ -1162,6 +1212,15 @@ function UI.CheckEquip(itemId, slot, previewSlots, classToken)
   if armor and ARMOR_SLOTS[slot] and not class_can_wear(classToken, armor.subClassID) then
     return false, "class_armor"
   end
+  if slot == "ammo" then
+    if not AMMO_CLASS[classToken] then
+      return false, "wrong_slot"
+    end
+    if item_equip_loc(itemId) ~= "INVTYPE_AMMO" then
+      return false, "wrong_slot"
+    end
+    return true
+  end
   if slot == "main_hand" or slot == "off_hand" or slot == "ranged" then
     local equipLoc = item_equip_loc(itemId)
     if equipLoc then
@@ -1169,6 +1228,9 @@ function UI.CheckEquip(itemId, slot, previewSlots, classToken)
       if not locOk then
         return false, locReason
       end
+    end
+    if slot == "ranged" and not ranged_slot_ok(classToken, itemId, item_equip_loc(itemId)) then
+      return false, "class_weapon"
     end
   end
   if slot ~= "main_hand" and slot ~= "off_hand" and slot ~= "ranged" then
@@ -1212,12 +1274,20 @@ function UI.AcceptsWeapon(itemId, gearSlot, classToken)
   classToken = classToken or UI.PlayerClassToken()
   local armor = armor_record(itemId)
   if armor then
+    if gearSlot == "main_hand" or gearSlot == "off_hand" or gearSlot == "ranged" or gearSlot == "ammo" then
+      return UI.CheckEquip(itemId, gearSlot, state.previewSlots, classToken) and true or false
+    end
     if gearSlot == nil or gearSlot == "" or ARMOR_SLOTS[gearSlot] then
       return class_can_wear(classToken, armor.subClassID)
     end
     return true
   end
   if not weapon_record(itemId) then
+    -- Shields and off-hand holdables are not cloth/leather/mail/plate, so they
+    -- are not armor_record hits. Still apply the slot rules.
+    if gearSlot == "main_hand" or gearSlot == "off_hand" or gearSlot == "ranged" or gearSlot == "ammo" then
+      return UI.CheckEquip(itemId, gearSlot, state.previewSlots, classToken) and true or false
+    end
     return true
   end
   classToken = classToken or UI.PlayerClassToken()
@@ -1506,7 +1576,7 @@ local function make_slot_button(parent, info, x, y)
     if self._itemId and GameTooltip.SetItemByID then
       GameTooltip:SetItemByID(self._itemId)
     else
-      local label = SLOT_LABEL[self._csSlot] or self._csSlot
+      local label = self._csLabel or SLOT_LABEL[self._csSlot] or self._csSlot
       if GameTooltip.SetText then
         GameTooltip:SetText(label .. " (right-click to unequip)")
       end
@@ -1534,12 +1604,60 @@ local function place_slot(info, point, relPoint, x, y)
   return btn
 end
 
+local function ranged_presentation(classToken)
+  classToken = classToken or UI.PlayerClassToken()
+  if classToken == "DRUID" then
+    return "Relic", EMPTY_SLOT.relic, false
+  end
+  if classToken == "SHAMAN" then
+    return "Totem", EMPTY_SLOT.relic, false
+  end
+  if classToken == "PALADIN" then
+    return "Libram", EMPTY_SLOT.relic, false
+  end
+  if classToken == "PRIEST" or classToken == "MAGE" or classToken == "WARLOCK" then
+    return "Wand", EMPTY_SLOT.ranged, false
+  end
+  return "Ranged", EMPTY_SLOT.ranged, true
+end
+
+local function apply_class_slots()
+  local label, empty, showAmmo = ranged_presentation(UI.PlayerClassToken())
+  local rangedBtn = slotButtons.ranged
+  if rangedBtn then
+    rangedBtn._csLabel = label
+    if not rangedBtn._itemId then
+      set_button_icon(rangedBtn, empty, QUESTION)
+    end
+    if rangedBtn.Show then
+      rangedBtn:Show()
+    end
+  end
+  local ammoBtn = slotButtons.ammo
+  if ammoBtn then
+    ammoBtn._csLabel = "Ammo"
+    if showAmmo then
+      ammoBtn._csClassHidden = false
+      if not ammoBtn._itemId then
+        set_button_icon(ammoBtn, EMPTY_SLOT.ammo, QUESTION)
+      end
+      if ammoBtn.Show then
+        ammoBtn:Show()
+      end
+    elseif ammoBtn.Hide then
+      ammoBtn._csClassHidden = true
+      ammoBtn:Hide()
+    end
+  end
+end
+
 local function build_doll(parent)
   dollFrame = CreateFrame("Frame", "CrusaderStrikeGearDoll", parent, "BackdropTemplate")
   -- PaperDoll-sized viewer. Not CharacterFrame and not stretched over the sheet.
   dollFrame._csPaperDoll = true
   dollFrame._csOwnedDoll = true
-  dollFrame:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
+  -- Shift the doll+sidebar pair toward the middle of the CS tab.
+  dollFrame:SetPoint("TOP", parent, "TOP", -math.floor(UI.SIDEBAR_WIDTH / 2), -8)
   dollFrame:SetSize(PAPERDOLL_WIDTH, PAPERDOLL_HEIGHT)
   if dollFrame.EnableMouse then
     dollFrame:EnableMouse(true)
@@ -1561,12 +1679,15 @@ local function build_doll(parent)
   for i, slot in ipairs(rightCol) do
     place_slot(bySlot[slot], "TOPRIGHT", "TOPRIGHT", SLOT_RIGHT_X, SLOT_TOP_Y - ((i - 1) * SLOT_STEP))
   end
-  -- PaperDoll weapon row: main hand, off hand, ranged, bottom-aligned.
+  -- PaperDoll weapon row: main hand, off hand, ranged, then ammo beside ranged.
   local weapons = { "main_hand", "off_hand", "ranged" }
   for i, slot in ipairs(weapons) do
     local x = UI.WEAPON_ROW_X + ((i - 1) * (SLOT_SIZE + UI.WEAPON_ROW_GAP))
     place_slot(bySlot[slot], "BOTTOMLEFT", "BOTTOMLEFT", x, UI.WEAPON_ROW_Y)
   end
+  local ammoX = UI.WEAPON_ROW_X + (3 * (SLOT_SIZE + UI.WEAPON_ROW_GAP))
+  place_slot(bySlot.ammo, "BOTTOMLEFT", "BOTTOMLEFT", ammoX, UI.WEAPON_ROW_Y)
+  apply_class_slots()
 
   statusText = add_text(dollFrame, "GameFontDisableSmall", "", 8, -8)
   if statusText.ClearAllPoints then
@@ -1874,8 +1995,7 @@ local function ensure_ui()
   -- sets / browser / stats body. They are not placed over the slot grid.
   local iconRow = CreateFrame("Frame", "CrusaderStrikeGearIconRow", popout)
   iconRow:SetSize((UI.SIDEBAR_TAB_W * 3) + (UI.SIDEBAR_TAB_GAP * 2), UI.SIDEBAR_TAB_H)
-  -- Level with the first slot row, not in the band above the gear grid.
-  iconRow:SetPoint("TOPRIGHT", popout, "TOPRIGHT", -6, SLOT_TOP_Y)
+  iconRow:SetPoint("TOPRIGHT", popout, "TOPRIGHT", -6, -4)
   if iconRow.EnableMouse then
     iconRow:EnableMouse(true)
   end
@@ -1913,7 +2033,7 @@ local function ensure_ui()
   topBrowserBtn:SetPoint("RIGHT", topStatsBtn, "LEFT", -UI.SIDEBAR_TAB_GAP, 0)
   topSetsBtn:SetPoint("RIGHT", topBrowserBtn, "LEFT", -UI.SIDEBAR_TAB_GAP, 0)
 
-  local sidebarTop = SLOT_TOP_Y - UI.SIDEBAR_TAB_H - 4
+  local sidebarTop = -(4 + UI.SIDEBAR_TAB_H + 4)
   local function anchor_sidebar_panel(panel)
     if panel.ClearAllPoints then
       panel:ClearAllPoints()
@@ -2149,6 +2269,7 @@ function UI.Enter()
     return
   end
   hide_active_subframe(cf)
+  apply_class_slots()
   if not state.previousSubframe then
     state.previousSubframe = "PaperDollFrame"
   end

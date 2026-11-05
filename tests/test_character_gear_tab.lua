@@ -2,7 +2,7 @@ describe("character gear tab scaffold", function()
   it("does not create CS slot buttons on load", function()
     eq(_G.CrusaderStrikeHeadSlot, nil)
     eq(_G.CharacterHeadSlot, nil)
-    eq(#CrusaderStrike.CharacterGearTab.SLOT_BUTTONS, 19)
+    eq(#CrusaderStrike.CharacterGearTab.SLOT_BUTTONS, 20)
     for _, info in ipairs(CrusaderStrike.CharacterGearTab.SLOT_BUTTONS) do
       ok(info.global:match("^CrusaderStrike"), info.global)
       eq(info.global:match("^Character"), nil)
@@ -406,7 +406,7 @@ describe("character gear tab scaffold", function()
     local sp, srel, _, _, sy = sets:GetPoint(1)
     eq(sp, "TOPLEFT")
     eq(srel, pop)
-    eq(sy, -76 - UI.SIDEBAR_TAB_H - 4)
+    eq(sy, -(4 + UI.SIDEBAR_TAB_H + 4))
 
     -- Sidebar tabs match PaperDollSidebarTabTemplate and live in the right pane.
     local iconRow = _G.CrusaderStrikeGearIconRow
@@ -420,7 +420,7 @@ describe("character gear tab scaffold", function()
     eq(ip, "TOPRIGHT")
     eq(irel, pop)
     eq(irp, "TOPRIGHT")
-    eq(iy, -76)
+    eq(iy, -4)
     eq(irel == root, false)
     eq(irel == _G.CrusaderStrikeGearDoll, false)
 
@@ -576,7 +576,7 @@ describe("character gear tab scaffold", function()
     UI.OnGearSlot("off_hand", "LeftButton")
     local okOff, whyOff = UI.EquipItem(900006)
     eq(okOff, false)
-    eq(whyOff, "dual_mainhand")
+    eq(whyOff, "wrong_slot")
     eq(UI.GetPreview().slots.off_hand, nil)
     eq(UI.GetPreview().slots.main_hand, 900003)
 
@@ -766,7 +766,7 @@ describe("character gear tab scaffold", function()
     eq(UI.GetPreview().slots.off_hand, 920003)
     local okOne, whyOne = try_slot("DRUID", "off_hand", 920003)
     eq(okOne, false)
-    eq(whyOne, "dual_mainhand")
+    eq(whyOne, "wrong_slot")
     eq(UI.GetPreview().slots.off_hand, nil)
     local okHunter, whyHunter = try_slot("HUNTER", "off_hand", 920003)
     eq(okHunter, false)
@@ -786,6 +786,48 @@ describe("character gear tab scaffold", function()
     eq(UI.AcceptsWeapon(920001, "off_hand", "WARRIOR"), false)
     eq(UI.AcceptsWeapon(920003, "off_hand", "WARRIOR"), true)
     eq(UI.AcceptsWeapon(920003, "off_hand", "HUNTER"), false)
+    eq(select(1, try_slot("DRUID", "off_hand", 920003)), false)
+    eq(select(1, try_slot("DRUID", "off_hand", 920004)), false)
+    eq(select(1, try_slot("DRUID", "off_hand", 920005)), false)
+    eq(UI.AcceptsWeapon(920001, "off_hand", "DRUID"), false)
+    eq(UI.AcceptsWeapon(920002, "off_hand", "DRUID"), false)
+    eq(UI.AcceptsWeapon(920003, "off_hand", "DRUID"), false)
+    eq(UI.AcceptsWeapon(920004, "off_hand", "DRUID"), false)
+    eq(UI.AcceptsWeapon(920005, "off_hand", "DRUID"), false)
+    eq(UI.AcceptsWeapon(920006, "off_hand", "DRUID"), true)
+    ok(try_slot("DRUID", "off_hand", 920006))
+    eq(UI.GetPreview().slots.off_hand, 920006)
+    local idol = { "Armor", "Idol", "INVTYPE_RELIC", 4, 8 }
+    local totem = { "Armor", "Totem", "INVTYPE_RELIC", 4, 9 }
+    local libram = { "Armor", "Libram", "INVTYPE_RELIC", 4, 7 }
+    local ammo = { "Projectile", "Arrow", "INVTYPE_AMMO", 6, 2 }
+    info[920009] = idol
+    info[920010] = totem
+    info[920011] = libram
+    info[920012] = ammo
+    eq(select(1, try_slot("DRUID", "ranged", 920007)), false)
+    ok(try_slot("DRUID", "ranged", 920009))
+    eq(UI.GetPreview().slots.ranged, 920009)
+    ok(try_slot("SHAMAN", "ranged", 920010))
+    ok(try_slot("PALADIN", "ranged", 920011))
+    eq(select(1, try_slot("PALADIN", "ranged", 920009)), false)
+    eq(select(1, try_slot("MAGE", "ranged", 920007)), false)
+    _G.UnitClass = function() return "Hunter", "HUNTER" end
+    UI.Show()
+    ok(_G.CrusaderStrikeAmmoSlot:IsShown())
+    eq(_G.CrusaderStrikeRangedSlot._csLabel, "Ranged")
+    ok(try_slot("HUNTER", "ammo", 920012))
+    eq(UI.GetPreview().slots.ammo, 920012)
+    local mageAmmo, mageWhy = UI.CheckEquip(920012, "ammo", {}, "MAGE")
+    eq(mageAmmo, false)
+    eq(mageWhy, "wrong_slot")
+    _G.UnitClass = function() return "Mage", "MAGE" end
+    UI.Show()
+    eq(_G.CrusaderStrikeAmmoSlot:IsShown(), false)
+    eq(_G.CrusaderStrikeRangedSlot._csLabel, "Wand")
+    _G.UnitClass = function() return "Druid", "DRUID" end
+    UI.Show()
+    eq(_G.CrusaderStrikeRangedSlot._csLabel, "Relic")
     _G.UnitClass = prevClass
     _G.GetItemInfoInstant = prevInfo
     _G.CharacterFrame = prevChar

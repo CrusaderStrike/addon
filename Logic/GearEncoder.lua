@@ -681,7 +681,7 @@ local function validate_removes(removes)
   if type(removes) ~= "table" then
     return false, "validation"
   end
-  if #removes > 19 then
+  if #removes > 20 then
     return false, "validation"
   end
   local GS = CrusaderStrikeGearSlots

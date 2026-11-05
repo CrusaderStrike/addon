@@ -372,6 +372,9 @@ function G.SetSlot(charDB, local_id, slot, item_id)
     if type(item_id) ~= "number" or item_id ~= math.floor(item_id) or item_id < 1 or item_id > 2147483647 then
       return nil, "validation"
     end
+    if slot == "off_hand" and CrusaderStrikeGearSlots.OffhandRejects(item_id) then
+      return nil, "wrong_slot"
+    end
   end
 
   local ops = nil
@@ -940,6 +943,9 @@ function G.ApplyImport(charDB, payload)
       end
       copied.role_spec = role_spec
       copied.slots = apply_removes_to_slots(copied.slots, incoming.removes)
+      if type(copied.slots) == "table" and CrusaderStrikeGearSlots.OffhandRejects(copied.slots.off_hand) then
+        copied.slots.off_hand = nil
+      end
       copied.removes = {} -- consumed
       new_lists[#new_lists + 1] = copied
     else
@@ -967,10 +973,17 @@ function G.ApplyImport(charDB, payload)
         end
         if type(incoming.slots) == "table" then
           for k, v in pairs(incoming.slots) do
-            existing.slots[k] = v
+            if k == "off_hand" and CrusaderStrikeGearSlots.OffhandRejects(v) then
+              -- Leave the off-hand unset rather than placing a main-hand weapon.
+            else
+              existing.slots[k] = v
+            end
           end
         end
         existing.slots = apply_removes_to_slots(existing.slots, incoming.removes)
+        if type(existing.slots) == "table" and CrusaderStrikeGearSlots.OffhandRejects(existing.slots.off_hand) then
+          existing.slots.off_hand = nil
+        end
         existing.removes = {}
       else
         -- keep local; still link server id when web echoes local_id→id

@@ -1,6 +1,7 @@
 --[[
-  Platform GearSlot wire names (19), matching CSGEAR1 / platform GearSlot.
-  invSlot 1..19 → snake_case name. Shirt and tabard are always valid on the wire.
+  Platform GearSlot wire names (20), matching CSGEAR1 / platform GearSlot.
+  invSlot 1..19 → snake_case name. `ammo` is the 20th wire slot (arrows/bullets).
+  Shirt and tabard are always valid on the wire.
 ]]
 
 CrusaderStrikeGearSlots = CrusaderStrikeGearSlots or {}
@@ -26,6 +27,7 @@ GS.BY_INV = {
   [17] = "off_hand",
   [18] = "ranged",
   [19] = "tabard",
+  [20] = "ammo",
 }
 
 GS.NAMES = {}
@@ -49,8 +51,30 @@ GS.LAYOUT = {
   { "tabard", "trinket1" },
   { "wrist", "trinket2" },
   { "main_hand", "off_hand" },
-  { "ranged", nil },
+  { "ranged", "ammo" },
 }
+
+-- True when this item must not be written into off_hand (main-hand or two-hand).
+function GS.OffhandRejects(itemId)
+  itemId = tonumber(itemId)
+  if not itemId then
+    return false
+  end
+  local loc
+  if type(GetItemInfoInstant) == "function" then
+    local ok, _, _, _, equipLoc = pcall(GetItemInfoInstant, itemId)
+    if ok and type(equipLoc) == "string" and equipLoc ~= "" then
+      loc = equipLoc:upper()
+    end
+  end
+  if not loc and type(GetItemInfo) == "function" then
+    local ok, _, _, _, _, _, _, _, _, equipLoc = pcall(GetItemInfo, itemId)
+    if ok and type(equipLoc) == "string" and equipLoc ~= "" then
+      loc = equipLoc:upper()
+    end
+  end
+  return loc == "INVTYPE_WEAPONMAINHAND" or loc == "INVTYPE_2HWEAPON"
+end
 
 function GS.IsValidName(name)
   return type(name) == "string" and GS.BY_NAME[name] ~= nil
