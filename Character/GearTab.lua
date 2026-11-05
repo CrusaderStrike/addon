@@ -23,10 +23,12 @@
 -- Weapon equip uses vanilla class proficiency (Forever 1.60.1 / Classic):
 -- a Druid cannot take swords or crossbows, and nobody can wear two main-hand
 -- weapons. Armor slots (head, shoulder, chest, waist, legs, feet, wrist,
--- hands) are class-only, with no level gate: druid/rogue wear cloth and
--- leather; shaman/hunter also mail at any level; paladin/warrior also plate;
--- mage/priest/warlock cloth only. Cloaks, rings, necks, and trinkets are not
--- filtered by armor type.
+-- hands) follow class armor. Druid/rogue wear cloth and leather. Shaman and
+-- hunter also wear mail only when the gear set is level 40 or higher
+-- (leveling until_level, or 60 for a max_level set; UnitLevel if no set is
+-- selected). Paladin/warrior wear cloth, leather, mail, and plate with no
+-- plate level gate. Mage/priest/warlock wear cloth only. Cloaks, rings,
+-- necks, and trinkets are not filtered by armor type.
 -- Left-click a browser item to equip it into the current gear set; right-click
 -- a CS gear-set slot to unequip. AtlasLoot Classic data.lua is a layout
 -- reference only (GPL-2.0). See docs/character-gear-tab.md.
@@ -1036,8 +1038,9 @@ local function armor_record(itemId)
   return rec
 end
 
--- No level check. until_level on a gear set is not armor proficiency.
--- Hunter/shaman mail and warrior/paladin plate are allowed at any level.
+-- Mail for hunter/shaman starts at 40. Plate is not level-gated here.
+local MAIL_AT_LEVEL = 40
+local MAX_LEVEL = 60
 local ARMOR_SLOTS = {
   head = true,
   shoulder = true,
@@ -1049,12 +1052,40 @@ local ARMOR_SLOTS = {
   hands = true,
 }
 
-local function class_can_wear(classToken, subClassID)
+local function planner_level()
+  local db = char_db()
+  if state.localId and db and CrusaderStrikeGearSets and CrusaderStrikeGearSets.FindByLocalId then
+    local list = CrusaderStrikeGearSets.FindByLocalId(db, state.localId)
+    if type(list) == "table" then
+      if list.type == "max_level" then
+        return MAX_LEVEL
+      end
+      if type(list.until_level) == "number" then
+        return list.until_level
+      end
+    end
+  end
+  if type(UnitLevel) == "function" then
+    local ok, lvl = pcall(UnitLevel, "player")
+    if ok and type(lvl) == "number" then
+      return lvl
+    end
+  end
+  return 1
+end
+
+local function class_can_wear(classToken, subClassID, level)
   local set = classToken and ARMOR_ALLOWED[classToken]
   if not set then
     return true
   end
-  return set[subClassID] == true
+  if not set[subClassID] then
+    return false
+  end
+  if subClassID == ARMOR_SUB.MAIL and (classToken == "SHAMAN" or classToken == "HUNTER") then
+    return (level or planner_level()) >= MAIL_AT_LEVEL
+  end
+  return true
 end
 
 local function item_equip_loc(itemId)
