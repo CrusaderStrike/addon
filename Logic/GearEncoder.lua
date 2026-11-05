@@ -283,7 +283,7 @@ local function infer_code_from_status(status, hint)
   if status == 400 then
     if type(hint) == "string" then
       local h = string.lower(hint)
-      if h:find("invalid_json", 1, true) or h == "invalid_json" then
+      if h:find("invalid_json", 1, true) then
         return "invalid_json"
       end
     end
@@ -321,7 +321,7 @@ end
   input: string code | error table | full body with .error / .errors | nil
   meta:  optional { http_status|status=, retry_after=, headers=, request_id=, retryable= }
 
-  Returns { code, message, retryable, retry_after, request_id, limit }
+  Returns { code, message, retryable, retry_after, request_id, limit, server_message }
   (retry_after / request_id / limit may be nil; meta.now overrides clock for HTTP-date Retry-After). Field-map codes are non-retryable.
 ]]
 function GE.ParseErrorEnvelope(input, meta)
@@ -341,16 +341,29 @@ function GE.ParseErrorEnvelope(input, meta)
   end
 
   local code, server_message, retryable
+  local server_detail -- platform#56 top-level human message on field-map 400s
   if field_map ~= nil then
-    -- Prefer body=invalid_json → invalid_json; else first field reason / validation_error.
-    local body_reason = field_map.body
-    if body_reason == "invalid_json" then
+    if type(input.message) == "string" and #input.message > 0 then
+      server_detail = input.message
+    end
+    -- Prefer body=invalid_json → invalid_json; else first field reason (sorted
+    -- keys, so the hint is deterministic) / validation_error. Accepts both
+    -- string-keyed field-maps and numbered lists ({"errors":["...", ...]}).
+    if field_map.body == "invalid_json" then
       code = "invalid_json"
       server_message = "invalid_json"
     else
       code = "validation_error"
-      -- Surface the first field reason as a hint (stable codes stay validation_error).
-      for _, reason in pairs(field_map) do
+      local keys = {}
+      for k in pairs(field_map) do keys[#keys + 1] = k end
+      table.sort(keys, function(a, b)
+        local ta, tb = type(a), type(b)
+        if ta ~= tb then return ta == "number" end
+        if ta == "number" or ta == "string" then return a < b end
+        return tostring(a) < tostring(b)
+      end)
+      for _, k in ipairs(keys) do
+        local reason = field_map[k]
         if type(reason) == "string" and #reason > 0 then
           server_message = reason
           if reason == "invalid_json" then
@@ -452,6 +465,9 @@ function GE.ParseErrorEnvelope(input, meta)
   if REJECT_MESSAGES[code] == nil and server_message then
     message = server_message
   end
+  if code == "invalid_json" and server_detail then
+    message = message .. " Server: " .. server_detail
+  end
   if code == "upstream_unavailable" then
     if retry_after ~= nil then
       message = GE.SyncErrorMessage("upstream_unavailable")
@@ -477,6 +493,7 @@ function GE.ParseErrorEnvelope(input, meta)
     retry_after = retry_after,
     request_id = request_id,
     limit = limit,
+    server_message = server_detail,
   }
 end
 

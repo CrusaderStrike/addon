@@ -5,6 +5,7 @@ All notable changes to CrusaderStrike (World of Warcraft: Forever only).
 ## Unreleased
 
 ### Changed
+- **FailSync nits from #50 (#53):** field-map validation hint uses sorted keys (deterministic); platform#56 top-level `message` on `invalid_json` 400s is stored as `server_message` on ParseErrorEnvelope / FailSync / `last_sync_error` and appended to the player message; numbered `errors` lists parse; removed redundant `h == "invalid_json"` check. Tests for both shapes. Refs #26, platform#56.
 - **Deferred envelope nits from #46 (#51):** `Retry-After` accepts HTTP-dates (IMF-fixdate / RFC 850 / asctime, UTC) as well as delta-seconds; header lookup is case-insensitive for any casing; `list_limit_reached` honors `error.details.limit` (exposed as `limit` on ParseErrorEnvelope / FailSync). Added validation_error / list_limit_reached tests. Refs #26, #46.
 - **Consume platform#54 invalid_json field-map (#49):** `ParseErrorEnvelope` / `ApplyOpsResult` recognize `{errors:{body:"invalid_json"}}` (and other field-map 400s) as non-retryable `invalid_json` / `validation_error` — not inferred `internal_error`. FailSync clears syncing, keeps pending_ops, surfaces SyncErrorMessage. Locked to CrusaderStrike/platform#54 (`283a775`). Refs #26.
 

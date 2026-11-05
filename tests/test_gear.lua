@@ -1441,6 +1441,59 @@ describe("platform#51/#52 error envelopes (#45)", function()
     eq(list.syncing, false)
   end)
 
+  it("platform#56 top-level message on invalid_json is stored and shown (#53)", function()
+    local msg = "Request body is not valid JSON."
+    local a = GE.ParseErrorEnvelope({ errors = { body = "invalid_json" }, message = msg }, { http_status = 400 })
+    eq(a.code, "invalid_json")
+    eq(a.retryable, false)
+    eq(a.server_message, msg)
+    ok(a.message:find("invalid JSON", 1, true) ~= nil)
+    ok(a.message:find(msg, 1, true) ~= nil)
+    -- Absent / empty message → no server_message, catalog copy only
+    local b = GE.ParseErrorEnvelope({ errors = { body = "invalid_json" }, message = "" })
+    eq(b.server_message, nil)
+    eq(b.message, GE.SyncErrorMessage("invalid_json"))
+
+    local db = { gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} } }
+    local list = CrusaderStrikeGearSets.CreateSet(db, { name = "Msg56", type = "max_level" }, 60)
+    CrusaderStrikeGearSets.SetSlot(db, list.local_id, "head", 12345)
+    local n = #CrusaderStrikeGearSets.PeekPendingOps(db, list.local_id)
+    CrusaderStrikeGearSets.BeginSync(db, list.local_id)
+    local s = CrusaderStrikeGearSets.ApplyOpsResult(db, list.local_id, {
+      errors = { body = "invalid_json" }, message = msg, http_status = 400,
+    })
+    eq(s.code, "invalid_json")
+    eq(s.server_message, msg)
+    eq(s.pending_kept, n)
+    eq(list.syncing, false)
+    eq(list.last_sync_error.server_message, msg)
+    ok(list.last_sync_error.message:find(msg, 1, true) ~= nil)
+  end)
+
+  it("field-map validation hint is deterministic (sorted keys) and numbered lists parse (#53)", function()
+    for _ = 1, 20 do
+      local r = GE.ParseErrorEnvelope({ errors = { zeta = "z_reason", alpha = "a_reason", mid = "m_reason" } }, { http_status = 400 })
+      eq(r.code, "validation_error")
+      eq(r.retryable, false)
+    end
+    -- Sorted-first key wins regardless of insertion order (unknown code path exposes hint)
+    local r1 = GE.ParseErrorEnvelope({ errors = { zeta = "invalid_json", alpha = "required" } })
+    eq(r1.code, "validation_error")
+    local r2 = GE.ParseErrorEnvelope({ errors = { alpha = "invalid_json", zeta = "required" } })
+    eq(r2.code, "invalid_json")
+    -- Numbered errors list
+    local l = GE.ParseErrorEnvelope({ errors = { "name is required", "type is invalid" } }, { http_status = 400 })
+    eq(l.code, "validation_error")
+    eq(l.retryable, false)
+    local lj = GE.ParseErrorEnvelope({ errors = { "required", "invalid_json" } }, { http_status = 400 })
+    eq(lj.code, "validation_error")
+    local lj2 = GE.ParseErrorEnvelope({ errors = { "invalid_json" } }, { http_status = 400 })
+    eq(lj2.code, "invalid_json")
+    -- Mixed numeric + string keys does not error
+    local m = GE.ParseErrorEnvelope({ errors = { "x", name = "required" } })
+    eq(m.code, "validation_error")
+  end)
+
   it("keeps validation / conflict handling unchanged alongside envelopes", function()
     local db = { gearSets = { character_id = nil, region = "us", lists = {}, deleted = {} } }
     local list = CrusaderStrikeGearSets.CreateSet(db, { name = "Valid", type = "max_level" }, 60)

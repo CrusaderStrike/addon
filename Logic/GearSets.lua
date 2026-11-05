@@ -586,7 +586,7 @@ function G.ApplyOpsResult(charDB, local_id, result)
       end
     end
     if is_field_map then
-      return G.FailSync(charDB, local_id, { errors = result.errors }, {
+      return G.FailSync(charDB, local_id, { errors = result.errors, message = result.message }, {
         http_status = result.http_status or result.status or 400,
         retry_after = result.retry_after,
         headers = result.headers,
@@ -1045,6 +1045,7 @@ function G.FailSync(charDB, local_id, code_or_detail, meta)
     retry_after = parsed.retry_after,
     request_id = parsed.request_id,
     limit = parsed.limit,
+    server_message = parsed.server_message,
     at = now_iso(),
   }
   list.last_sync_error = err
@@ -1063,6 +1064,7 @@ function G.FailSync(charDB, local_id, code_or_detail, meta)
     retry_after = parsed.retry_after,
     request_id = parsed.request_id,
     limit = parsed.limit,
+    server_message = parsed.server_message,
     pending_kept = pending_n,
     syncing = false,
   }
