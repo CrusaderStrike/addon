@@ -108,6 +108,10 @@ local function pick_run(keyHint)
   local charDB = CS.GetCharDB()
   if keyHint and keyHint ~= "" then
     local run = charDB.runs[keyHint]
+    if run and not CrusaderStrikeRunLifecycle.IsUploadable(run) then
+      CS.Print("Run " .. keyHint .. " is simulated (/cs debug simulate) and is not exported.")
+      return nil
+    end
     if run then
       return run
     end
@@ -115,12 +119,12 @@ local function pick_run(keyHint)
     return nil
   end
   local active = CS.GetActiveRun()
-  if active then
+  if active and CrusaderStrikeRunLifecycle.IsUploadable(active) then
     return active
   end
   local best
   for _, run in pairs(charDB.runs or {}) do
-    if not best or (run.startedAt or 0) > (best.startedAt or 0) then
+    if CrusaderStrikeRunLifecycle.IsUploadable(run) and (not best or (run.startedAt or 0) > (best.startedAt or 0)) then
       best = run
     end
   end
@@ -129,6 +133,9 @@ end
 
 function Ex.BuildString(run)
   local payload = CrusaderStrikeRunLifecycle.ToExportTable(run)
+  if not payload then
+    return nil
+  end
   return CrusaderStrikeEncoder.EncodeRun(payload)
 end
 

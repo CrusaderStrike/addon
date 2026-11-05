@@ -154,6 +154,11 @@ function CrusaderStrikeRunLifecycle.ShouldResume(activeOrLast, instanceId, nowUn
   if not activeOrLast then
     return false
   end
+  -- Simulated (/cs debug simulate) sandbox runs are never resumable: real
+  -- logging attached to a sim- run would be refused by IsUploadable forever.
+  if activeOrLast.simulated then
+    return false
+  end
   if activeOrLast.instance.id ~= instanceId then
     return false
   end
@@ -220,7 +225,39 @@ function CrusaderStrikeRunLifecycle.ExportStatus(run)
 end
 
 -- Convert a stored run into the public export / platform payload shape.
-function CrusaderStrikeRunLifecycle.ToExportTable(run)
+-- addon#22: /cs debug simulate records carry simulated=true. Exports and
+-- uploads drop them unless opts.includeSimulated is set.
+local function without_simulated(list, include)
+  local out = {}
+  for _, e in ipairs(list or {}) do
+    if include or not e.simulated then
+      out[#out + 1] = e
+    end
+  end
+  return out
+end
+
+function CrusaderStrikeRunLifecycle.IsSimulated(run)
+  return run ~= nil and run.simulated == true
+end
+
+-- Companion/uploader gate: simulated sandbox runs never upload by default.
+function CrusaderStrikeRunLifecycle.IsUploadable(run, opts)
+  if not run then
+    return false
+  end
+  if run.simulated and not (opts and opts.includeSimulated) then
+    return false
+  end
+  return true
+end
+
+function CrusaderStrikeRunLifecycle.ToExportTable(run, opts)
+  local includeSim = opts and opts.includeSimulated or false
+  -- Defense in depth: never build an envelope for a simulated run unless asked.
+  if run.simulated and not includeSim then
+    return nil
+  end
   local abandoned = run.status == "abandoned"
   return {
     schemaVersion = run.schemaVersion or SCHEMA_VERSION,
@@ -241,8 +278,8 @@ function CrusaderStrikeRunLifecycle.ToExportTable(run)
     completed = (not abandoned) and (run.completed and true or false) or false,
     status = CrusaderStrikeRunLifecycle.ExportStatus(run),
     party = run.party or {},
-    bosses = run.bosses or {},
-    deaths = run.deaths or {},
+    bosses = without_simulated(run.bosses, includeSim),
+    deaths = without_simulated(run.deaths, includeSim),
   }
 end
 

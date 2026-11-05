@@ -26,6 +26,7 @@ Logic\GearEncoder.lua
 Logic\GearSets.lua
 Core.lua
 DungeonLog.lua
+DebugSimulate.lua
 Export.lua
 PvpLog.lua
 LootBrowser.lua

@@ -193,7 +193,16 @@ SlashCmdList["CRUSADERSTRIKE"] = function(msg)
   elseif cmd == "debug" then
     local sub, rest2 = (rest or ""):match("^(%S+)%s*(.*)$")
     sub = sub and sub:lower() or nil
-    if sub == "events" then
+    if sub == "on" or sub == "off" then
+      CrusaderStrikeDB.settings.debug = (sub == "on")
+      CS.Print("debug=" .. tostring(CrusaderStrikeDB.settings.debug))
+    elseif sub == "simulate" then
+      if CS.DebugSimulate and CS.DebugSimulate.Command then
+        CS.DebugSimulate.Command(rest2)
+      else
+        CS.Print("debug simulate unavailable")
+      end
+    elseif sub == "events" then
       local mode = (rest2 or ""):match("^(%S+)")
       mode = mode and mode:lower() or "on"
       if not CrusaderStrikeDebugEvents then
@@ -263,6 +272,6 @@ SlashCmdList["CRUSADERSTRIKE"] = function(msg)
     end
     CS.Print("Imported gear sets (" .. tostring(#(payload.lists or {})) .. " lists)")
   else
-    CS.Print("Commands: /cs loot | /cs gearsets | /cs export [key] | /cs import <CSGEAR1> | /cs status | /cs pvp | /cs debug | /cs debug events [on|off|dump]")
+    CS.Print("Commands: /cs loot | /cs wishlist | /cs gearsets | /cs import <CSGEAR1> | /cs export [key] | /cs status | /cs pvp | /cs debug [on|off] | /cs debug simulate kill [boss]|death [unit] | /cs debug events [on|off|dump]")
   end
 end

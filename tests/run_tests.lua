@@ -80,6 +80,7 @@ local files = {
   "test_detection.lua",
   "test_wishlist.lua",
   "test_gear.lua",
+  "test_simulate.lua",
 }
 
 -- Load frame-facing modules for handler tests (CreateFrame stubbed in mock_wow).
@@ -87,6 +88,8 @@ dofile(addon_root .. "Core.lua")
 dofile(addon_root .. "DungeonLog.lua")
 dofile(addon_root .. "LootBrowser.lua")
 dofile(addon_root .. "GearSetsUI.lua")
+dofile(addon_root .. "DebugSimulate.lua")
+dofile(addon_root .. "Export.lua")
 
 io.write("CrusaderStrike tests (Lua " .. _VERSION .. ")\n")
 for _, f in ipairs(files) do

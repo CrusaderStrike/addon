@@ -213,7 +213,13 @@ local function apply_boss_kill(run, npcId, bossName, killedAt)
   if not run or not npcId then
     return false
   end
+  if DL._simulating and not run.simulated then
+    return false -- simulations only ever write into their own sandbox run
+  end
   if CrusaderStrikeRunLifecycle.RecordBossKill(run, npcId, bossName, killedAt) then
+    if DL._simulating then
+      run.bosses[#run.bosses].simulated = true
+    end
     CS.Debug("Boss kill: " .. tostring(bossName))
     if CrusaderStrikeBosses.IsFinalBoss(run.gameVersion, run.instance.id, npcId) then
       CrusaderStrikeRunLifecycle.MarkCompleted(run, killedAt)
@@ -332,7 +338,13 @@ local function record_party_death(unit, name, realm)
   if not name then
     return false
   end
+  if DL._simulating and not run.simulated then
+    return false -- simulations only ever write into their own sandbox run
+  end
   CrusaderStrikeRunLifecycle.RecordDeath(run, name, realm, now(), nil)
+  if DL._simulating then
+    run.deaths[#run.deaths].simulated = true
+  end
   CS.StoreRun(run)
   CS.Debug("Death: " .. name)
   if CS.DebugEvents then
@@ -524,6 +536,14 @@ DL.SnapshotParty = snapshot_party
 DL._deathTracker = function()
   return deathTracker
 end
+-- /cs debug simulate (addon#22) swaps in a throwaway tracker so a fake
+-- PLAYER_DEAD never leaves the real player marked dead.
+DL._swapDeathTracker = function(t)
+  local old = deathTracker
+  deathTracker = t
+  return old
+end
+DL._recordPartyDeath = record_party_death
 DL._resetDeathTracker = function()
   deathTracker = CrusaderStrikeDetection.NewDeathTracker(5)
 end
