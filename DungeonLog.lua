@@ -233,9 +233,9 @@ local function on_cleu()
     -- Only log if dest is in our party snapshot names (or current group).
     local name = destName
     local realm = run.realm
-    if name and name:find("-") then
-      local n, r = name:match("^(.-)%-(.+)$")
-      if n then
+    if name then
+      local n, r = CrusaderStrikeRunLifecycle.SplitNameRealm(name)
+      if r then
         name, realm = n, r
       end
     end
@@ -252,12 +252,12 @@ local function on_cleu()
       if UnitInParty and destName then
         -- Best-effort: match party units by name
         local pname = UnitName("player")
-        if destName == pname or destName == (pname .. "-" .. (GetRealmName() or "")) then
+        if CrusaderStrikeRunLifecycle.NameMatches(destName, pname) then
           inParty = true
         end
         for i = 1, 4 do
           local pn = UnitName("party" .. i)
-          if pn and (destName == pn or destName:match("^" .. pn .. "%-")) then
+          if CrusaderStrikeRunLifecycle.NameMatches(destName, pn) then
             inParty = true
             break
           end

@@ -245,3 +245,29 @@ function CrusaderStrikeRunLifecycle.ToExportTable(run)
     deaths = run.deaths or {},
   }
 end
+
+-- Plain (non-pattern) name compare for party-death matching.
+-- Matches "Name" or "Name-Realm" against a unit name without treating
+-- either string as a Lua pattern (names may contain magic chars).
+function CrusaderStrikeRunLifecycle.NameMatches(destName, unitName)
+  if type(destName) ~= "string" or type(unitName) ~= "string" or unitName == "" then
+    return false
+  end
+  if destName == unitName then
+    return true
+  end
+  local prefix = unitName .. "-"
+  return destName:sub(1, #prefix) == prefix
+end
+
+-- Split "Name-Realm" on the first hyphen with a plain find.
+function CrusaderStrikeRunLifecycle.SplitNameRealm(fullName)
+  if type(fullName) ~= "string" then
+    return fullName, nil
+  end
+  local i = fullName:find("-", 1, true)
+  if not i or i == 1 or i == #fullName then
+    return fullName, nil
+  end
+  return fullName:sub(1, i - 1), fullName:sub(i + 1)
+end
