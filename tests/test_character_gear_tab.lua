@@ -1267,4 +1267,151 @@ describe("character gear tab scaffold", function()
     _G.CrusaderStrikeCharDB = prevDb
     _G.CharacterFrame = prevChar
   end)
+
+  it("blocks armor above the class tier on every equip path", function()
+    local UI = CrusaderStrike.CharacterGearTab
+    local prevClass = _G.UnitClass
+    local prevInfo = _G.GetItemInfoInstant
+    local prevGet = _G.GetItemInfo
+    local prevDb = _G.CrusaderStrikeCharDB
+    local prevChar = _G.CharacterFrame
+    _G.CrusaderStrikeCharDB = {}
+    _G.CharacterFrame = {
+      ModeTabs = { Tabs = {} },
+      shown = true,
+      IsShown = function(self) return self.shown end,
+    }
+    local info = {
+      [940001] = { "Armor", "Cloth", "INVTYPE_CHEST", 4, 1 },
+      [940002] = { "Armor", "Leather", "INVTYPE_CHEST", 4, 2 },
+      [940003] = { "Armor", "Mail", "INVTYPE_CHEST", 4, 3 },
+      [940004] = { "Armor", "Plate", "INVTYPE_CHEST", 4, 4 },
+    }
+    _G.GetItemInfoInstant = function(itemId)
+      local row = info[tonumber(itemId)]
+      if not row then
+        return nil
+      end
+      return itemId, row[1], row[2], row[3], "Interface\\Icons\\INV_CS_Item_" .. tostring(itemId), row[4], row[5]
+    end
+    _G.GetItemInfo = function()
+      return nil
+    end
+    local classes = { "MAGE", "PRIEST", "WARLOCK", "DRUID", "ROGUE", "HUNTER", "SHAMAN", "WARRIOR", "PALADIN" }
+    local maxTier = {
+      MAGE = 1, PRIEST = 1, WARLOCK = 1,
+      DRUID = 2, ROGUE = 2,
+      HUNTER = 3, SHAMAN = 3,
+      WARRIOR = 4, PALADIN = 4,
+    }
+    local ids = { [1] = 940001, [2] = 940002, [3] = 940003, [4] = 940004 }
+    local armorSlots = { "head", "shoulder", "chest", "waist", "legs", "feet", "wrist", "hands" }
+    UI.Show()
+    local list = CrusaderStrikeGearSets.CreateSet(_G.CrusaderStrikeCharDB, {
+      name = "Armor matrix",
+      type = "leveling",
+      until_level = 30,
+    }, 10)
+    ok(list ~= nil)
+    for _, classToken in ipairs(classes) do
+      _G.UnitClass = function() return classToken, classToken end
+      for tier = 1, 4 do
+        local itemId = ids[tier]
+        local expect = tier <= maxTier[classToken]
+        for _, slot in ipairs(armorSlots) do
+          eq(select(1, UI.CheckEquip(itemId, slot, {}, classToken)), expect)
+          eq(UI.AcceptsWeapon(itemId, slot, classToken), expect)
+          UI.GetPreview().slots[slot] = nil
+          UI.OnGearSlot(slot, "LeftButton")
+          eq(select(1, UI.EquipItem(itemId)), expect)
+          if expect then
+            eq(UI.GetPreview().slots[slot], itemId)
+          else
+            eq(UI.GetPreview().slots[slot], nil)
+          end
+          list.slots[slot] = nil
+          local saved, err = CrusaderStrikeGearSets.SetSlot(_G.CrusaderStrikeCharDB, list.local_id, slot, itemId)
+          if expect then
+            ok(saved ~= nil)
+            eq(list.slots[slot], itemId)
+          else
+            eq(saved, nil)
+            eq(err, "class_armor")
+            eq(list.slots[slot], nil)
+          end
+          list.slots[slot] = itemId
+          ok(UI.SelectSet(list.local_id))
+          if expect then
+            eq(UI.GetPreview().slots[slot], itemId)
+          else
+            eq(UI.GetPreview().slots[slot], nil)
+          end
+          list.slots[slot] = nil
+          local importDb = {}
+          ok(CrusaderStrikeGearSets.ApplyImport(importDb, {
+            lists = {
+              {
+                local_id = "armor-one",
+                name = "One",
+                type = "max_level",
+                edited_at = "2099-01-01T00:00:00Z",
+                edited_in = "web",
+                slots = { [slot] = itemId },
+                removes = {},
+              },
+            },
+          }))
+          local imported = CrusaderStrikeGearSets.FindByLocalId(importDb, "armor-one")
+          if expect then
+            eq(imported.slots[slot], itemId)
+          else
+            eq(imported.slots[slot], nil)
+          end
+        end
+      end
+    end
+
+    -- Classic GetItemInfo strings, no numeric subclass.
+    _G.GetItemInfoInstant = function()
+      return nil
+    end
+    _G.GetItemInfo = function(itemId)
+      itemId = tonumber(itemId)
+      if itemId == 940013 then
+        return "Mail Vest", "link", 2, 20, 1, "Armor", "Mail", 1, "INVTYPE_CHEST"
+      end
+      return nil
+    end
+    _G.UnitClass = function() return "Druid", "DRUID" end
+    eq(select(1, UI.CheckEquip(940013, "chest", {}, "DRUID")), false)
+    eq(select(1, UI.CheckEquip(940013, "chest", {}, "WARRIOR")), true)
+    _G.UnitClass = function() return "Druide", nil end
+    eq(CrusaderStrikeGearEquip.PlayerClass(), "DRUID")
+    eq(select(1, UI.CheckEquip(940013, "chest", {}, nil)), false)
+
+    -- Uncached: no instant data and no GetItemInfo.
+    _G.GetItemInfo = function()
+      return nil
+    end
+    _G.UnitClass = function() return "Druid", "DRUID" end
+    local unknownOk, unknownWhy = UI.CheckEquip(940099, "chest", {}, "DRUID")
+    eq(unknownOk, false)
+    eq(unknownWhy, "unknown_item")
+    UI.OnGearSlot("chest", "LeftButton")
+    eq(select(1, UI.EquipItem(940099)), false)
+    local savedUnknown = CrusaderStrikeGearSets.SetSlot(_G.CrusaderStrikeCharDB, list.local_id, "chest", 940099)
+    eq(savedUnknown, nil)
+    eq(UI.AcceptsWeapon(940099, "chest", "DRUID"), false)
+    -- Back, neck, finger, and trinket are not armor-tier slots.
+    eq(select(1, UI.CheckEquip(940004, "back", {}, "MAGE")), true)
+    eq(select(1, UI.CheckEquip(940099, "neck", {}, "DRUID")), true)
+    eq(select(1, UI.CheckEquip(940099, "finger1", {}, "DRUID")), true)
+    eq(select(1, UI.CheckEquip(940099, "trinket1", {}, "DRUID")), true)
+
+    _G.UnitClass = prevClass
+    _G.GetItemInfoInstant = prevInfo
+    _G.GetItemInfo = prevGet
+    _G.CrusaderStrikeCharDB = prevDb
+    _G.CharacterFrame = prevChar
+  end)
 end)

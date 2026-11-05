@@ -260,7 +260,13 @@ function G.CreateSet(charDB, fields, player_level)
         if item_id == nil then
           list.slots[slot] = nil
         elseif type(item_id) == "number" and item_id == math.floor(item_id) and item_id >= 1 then
-          list.slots[slot] = item_id
+          local allow = true
+          if CrusaderStrikeGearEquip and CrusaderStrikeGearEquip.CanPlace then
+            allow = CrusaderStrikeGearEquip.CanPlace(item_id, slot, CrusaderStrikeGearEquip.PlayerClass(), fields.slots)
+          end
+          if allow then
+            list.slots[slot] = item_id
+          end
         end
       end
     end

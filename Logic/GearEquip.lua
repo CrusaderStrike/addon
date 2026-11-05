@@ -23,15 +23,40 @@ E.ARMOR_SLOTS = {
   legs = true, feet = true, wrist = true, hands = true,
 }
 
+-- English tokens plus common localized class names. UnitClass's second
+-- return is the token; some callers only have the displayed name.
+local CLASS_ALIAS = {
+  warrior = "WARRIOR", guerrier = "WARRIOR", guerrero = "WARRIOR", krieger = "WARRIOR",
+  paladin = "PALADIN",
+  hunter = "HUNTER", chasseur = "HUNTER", cazador = "HUNTER", jaeger = "HUNTER",
+  rogue = "ROGUE", voleur = "ROGUE", picaro = "ROGUE", schurke = "ROGUE",
+  priest = "PRIEST", pretre = "PRIEST", sacerdote = "PRIEST", priester = "PRIEST",
+  mage = "MAGE", mago = "MAGE", magier = "MAGE",
+  warlock = "WARLOCK", demoniste = "WARLOCK", brujo = "WARLOCK", hexenmeister = "WARLOCK",
+  druid = "DRUID", druide = "DRUID", druida = "DRUID",
+  shaman = "SHAMAN", chaman = "SHAMAN", chaman = "SHAMAN", schamane = "SHAMAN",
+}
+
+function E.NormalizeClass(value)
+  if type(value) ~= "string" or value == "" then
+    return nil
+  end
+  local upper = value:upper()
+  if E.CLASS_ARMOR_MAX[upper] or E.OFFHAND_WEAPON_CLASS[upper] or E.SHIELD_CLASS[upper] then
+    return upper
+  end
+  return CLASS_ALIAS[value:lower()]
+end
+
 function E.PlayerClass()
   if type(UnitClass) ~= "function" then
     return nil
   end
-  local ok, _, token = pcall(UnitClass, "player")
-  if not ok or type(token) ~= "string" or token == "" then
+  local ok, localized, token = pcall(UnitClass, "player")
+  if not ok then
     return nil
   end
-  return token:upper()
+  return E.NormalizeClass(token) or E.NormalizeClass(localized)
 end
 
 function E.ArmorAllowed(classToken, subClassID)
@@ -39,41 +64,113 @@ function E.ArmorAllowed(classToken, subClassID)
   if not subClassID or subClassID < 1 or subClassID > 4 then
     return true
   end
-  if type(classToken) == "string" then
-    classToken = classToken:upper()
-  end
+  classToken = E.NormalizeClass(classToken)
   local maxTier = classToken and E.CLASS_ARMOR_MAX[classToken]
   if not maxTier then
-    return true
+    return false
   end
   return subClassID <= maxTier
 end
 
-local function armor_tier(itemId)
-  if type(GetItemInfoInstant) ~= "function" then
+local function tier_from_text(text)
+  if type(text) ~= "string" or text == "" then
     return nil
   end
-  local ok, _, itemType, itemSubType, _, _, classID, subClassID = pcall(GetItemInfoInstant, itemId)
-  if not ok then
-    return nil
+  local key = text:lower()
+  if key:find("plate", 1, true) or key:find("platte", 1, true) or key:find("plaque", 1, true) then
+    return 4
   end
-  local isArmor = classID == 4 or (type(itemType) == "string" and itemType:lower() == "armor")
-  if type(subClassID) == "number" and subClassID >= 1 and subClassID <= 4 and isArmor then
-    return subClassID
+  if key:find("mail", 1, true) or key:find("kette", 1, true) or key:find("maglia", 1, true) or key:find("malla", 1, true) then
+    return 3
   end
-  if isArmor and type(itemSubType) == "string" then
-    local key = itemSubType:lower()
-    if key:find("plate", 1, true) then
-      return 4
-    elseif key:find("mail", 1, true) then
-      return 3
-    elseif key:find("leather", 1, true) then
-      return 2
-    elseif key:find("cloth", 1, true) then
-      return 1
-    end
+  if key:find("leather", 1, true) or key:find("leder", 1, true) or key:find("cuir", 1, true) or key:find("cuero", 1, true) or key:find("couro", 1, true) then
+    return 2
+  end
+  if key:find("cloth", 1, true) or key:find("stoff", 1, true) or key:find("tissu", 1, true) or key:find("tela", 1, true) or key:find("pano", 1, true) then
+    return 1
+  end
+  if key:find("misc", 1, true) or key:find("divers", 1, true) then
+    return 0
   end
   return nil
+end
+
+-- "unknown" when the client has no item data (fail closed).
+-- "none" when the item is known and is not cloth/leather/mail/plate.
+-- 1..4 for those tiers. Subclass 0 is miscellaneous, not a tier.
+local function armor_tier(itemId)
+  local saw = false
+  local itemType, itemSubType, classID, subClassID
+
+  if type(GetItemInfoInstant) == "function" then
+    local ok, a, b, c, d, e, f, g = pcall(GetItemInfoInstant, itemId)
+    if ok and a ~= nil then
+      if type(a) == "number" then
+        -- Retail: id, type, subtype, equipLoc, icon, classID, subClassID.
+        -- Some builds omit icon: id, type, subtype, equipLoc, classID, subClassID.
+        if type(f) == "number" and type(g) == "number" then
+          itemType, itemSubType, classID, subClassID = b, c, f, g
+        elseif type(e) == "number" and type(f) == "number" then
+          itemType, itemSubType, classID, subClassID = b, c, e, f
+        else
+          itemType, itemSubType = b, c
+          if type(f) == "number" then
+            classID = f
+          end
+          if type(g) == "number" then
+            subClassID = g
+          end
+        end
+        -- An id with no type is still uncached.
+        if itemType ~= nil or classID ~= nil then
+          saw = true
+        end
+      elseif type(a) == "string" then
+        itemType, itemSubType = a, b
+        saw = true
+      end
+    end
+  end
+
+  if type(GetItemInfo) == "function" then
+    local ok, _, _, _, _, _, classStr, subStr = pcall(GetItemInfo, itemId)
+    if ok and (classStr ~= nil or subStr ~= nil) then
+      saw = true
+      if type(classStr) == "string" and itemType == nil then
+        itemType = classStr
+      end
+      if type(subStr) == "string" and itemSubType == nil then
+        itemSubType = subStr
+      end
+    end
+  end
+
+  if not saw then
+    return "unknown"
+  end
+
+  local isArmor = classID == 4 or (type(itemType) == "string" and itemType:lower() == "armor")
+  if isArmor and type(subClassID) == "number" then
+    if subClassID >= 1 and subClassID <= 4 then
+      return subClassID
+    end
+    return "none"
+  end
+  local fromText = tier_from_text(itemSubType)
+  if fromText == 0 then
+    return "none"
+  end
+  if fromText then
+    return fromText
+  end
+  if isArmor then
+    -- Armor with no readable subclass (still caching). Do not guess.
+    return "unknown"
+  end
+  if itemType ~= nil or classID ~= nil then
+    return "none"
+  end
+  return "unknown"
 end
 
 local function equip_loc(itemId)
@@ -98,17 +195,19 @@ function E.CanPlace(itemId, slot, classToken, previewSlots)
   if not itemId or type(slot) ~= "string" then
     return false, "validation"
   end
-  if type(classToken) ~= "string" or classToken == "" then
-    classToken = E.PlayerClass()
-  else
-    classToken = classToken:upper()
-  end
+  classToken = E.NormalizeClass(classToken) or E.PlayerClass()
   previewSlots = type(previewSlots) == "table" and previewSlots or {}
 
   if E.ARMOR_SLOTS[slot] then
     local tier = armor_tier(itemId)
-    if tier and classToken and E.CLASS_ARMOR_MAX[classToken] and tier > E.CLASS_ARMOR_MAX[classToken] then
-      return false, "class_armor"
+    if tier == "unknown" then
+      return false, "unknown_item"
+    end
+    if type(tier) == "number" then
+      local maxTier = classToken and E.CLASS_ARMOR_MAX[classToken]
+      if not maxTier or tier > maxTier then
+        return false, "class_armor"
+      end
     end
   end
 

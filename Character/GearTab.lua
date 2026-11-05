@@ -964,6 +964,9 @@ local WEAPON_LOCS = {
 }
 
 function UI.PlayerClassToken()
+  if CrusaderStrikeGearEquip and CrusaderStrikeGearEquip.PlayerClass then
+    return CrusaderStrikeGearEquip.PlayerClass()
+  end
   if type(UnitClass) ~= "function" then
     return nil
   end
@@ -1376,6 +1379,10 @@ end
 
 function UI.AcceptsWeapon(itemId, gearSlot, classToken)
   classToken = classToken or UI.PlayerClassToken()
+  if gearSlot == "head" or gearSlot == "shoulder" or gearSlot == "chest" or gearSlot == "waist"
+      or gearSlot == "legs" or gearSlot == "feet" or gearSlot == "wrist" or gearSlot == "hands" then
+    return UI.CheckEquip(itemId, gearSlot, state.previewSlots, classToken) and true or false
+  end
   local armor = armor_record(itemId)
   if armor then
     if gearSlot == "main_hand" or gearSlot == "off_hand" or gearSlot == "ranged" or gearSlot == "ammo" then
@@ -1423,6 +1430,9 @@ local function reject_status(reason, classToken)
   local label = "This class"
   if type(classToken) == "string" and classToken ~= "" then
     label = classToken:sub(1, 1) .. classToken:sub(2):lower()
+  end
+  if reason == "unknown_item" then
+    return "That item's type is not available yet."
   end
   if reason == "class_armor" then
     return label .. " cannot equip that armor."
