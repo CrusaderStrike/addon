@@ -126,25 +126,117 @@ function GE.SyncErrorMessage(code)
   return "Crusader Strike sync failed (" .. tostring(code) .. "). Gear changes are saved locally and will retry."
 end
 
-local function parse_retry_after(v)
+local MONTHS = {
+  jan = 1, feb = 2, mar = 3, apr = 4, may = 5, jun = 6,
+  jul = 7, aug = 8, sep = 9, oct = 10, nov = 11, dec = 12,
+}
+
+-- Days since 1970-01-01 for a proleptic Gregorian civil date (UTC, no os.time TZ).
+local function days_from_civil(y, m, d)
+  if m <= 2 then
+    y = y - 1
+  end
+  local era = math.floor(y / 400)
+  local yoe = y - era * 400
+  local mp = (m + 9) % 12
+  local doy = math.floor((153 * mp + 2) / 5) + d - 1
+  local doe = yoe * 365 + math.floor(yoe / 4) - math.floor(yoe / 100) + doy
+  return era * 146097 + doe - 719468
+end
+
+--[[
+  Parse an HTTP-date (RFC 9110 §5.6.7) into a UTC epoch. Accepts IMF-fixdate
+  ("Sun, 06 Nov 1994 08:49:37 GMT"), obsolete RFC 850
+  ("Sunday, 06-Nov-94 08:49:37 GMT") and asctime ("Sun Nov  6 08:49:37 1994").
+]]
+function GE.ParseHttpDate(v)
+  if type(v) ~= "string" then
+    return nil
+  end
+  local d, mon, y, hh, mm, ss = v:match("^%a+,%s*(%d%d?)%s+(%a%a%a)%s+(%d%d%d%d)%s+(%d%d):(%d%d):(%d%d)%s+GMT$")
+  if not d then
+    d, mon, y, hh, mm, ss = v:match("^%a+,%s*(%d%d?)%-(%a%a%a)%-(%d%d)%s+(%d%d):(%d%d):(%d%d)%s+GMT$")
+    if d then
+      y = tonumber(y)
+      y = (y < 70) and (2000 + y) or (1900 + y)
+    end
+  end
+  if not d then
+    mon, d, hh, mm, ss, y = v:match("^%a+%s+(%a%a%a)%s+(%d%d?)%s+(%d%d):(%d%d):(%d%d)%s+(%d%d%d%d)$")
+  end
+  if not d then
+    return nil
+  end
+  local m = MONTHS[string.lower(mon)]
+  d, y, hh, mm, ss = tonumber(d), tonumber(y), tonumber(hh), tonumber(mm), tonumber(ss)
+  if not m or d < 1 or d > 31 or hh > 23 or mm > 59 or ss > 60 then
+    return nil
+  end
+  return days_from_civil(y, m, d) * 86400 + hh * 3600 + mm * 60 + ss
+end
+
+local function current_time()
+  if type(GetServerTime) == "function" then
+    local t = GetServerTime()
+    if type(t) == "number" then
+      return t
+    end
+  end
+  if type(time) == "function" then
+    return time()
+  end
+  return os and os.time and os.time() or nil
+end
+
+-- Retry-After: delta-seconds (non-negative integer) or HTTP-date → seconds from now.
+local function parse_retry_after(v, now)
   if type(v) == "number" and v == math.floor(v) and v >= 0 then
     return v
   end
   if type(v) == "string" then
+    v = v:match("^%s*(.-)%s*$")
     local n = tonumber(v)
-    if n and n == math.floor(n) and n >= 0 then
+    if n and v:match("^%d+$") then
       return n
+    end
+    if n then
+      return nil
+    end
+    local at = GE.ParseHttpDate(v)
+    if at then
+      now = now or current_time()
+      if type(now) ~= "number" then
+        return nil
+      end
+      local delta = at - math.floor(now)
+      if delta < 0 then
+        delta = 0
+      end
+      return delta
     end
   end
   return nil
 end
+GE.ParseRetryAfter = parse_retry_after
 
-local function header_retry_after(headers)
+-- Case-insensitive header lookup (HTTP header names are case-insensitive).
+local function header_retry_after(headers, now)
   if type(headers) ~= "table" then
     return nil
   end
-  local v = headers["Retry-After"] or headers["retry-after"] or headers["RETRY-AFTER"]
-  return parse_retry_after(v)
+  local v = headers["Retry-After"]
+  if v == nil then
+    for k, hv in pairs(headers) do
+      if type(k) == "string" and string.lower(k:match("^%s*(.-)%s*$")) == "retry-after" then
+        v = hv
+        break
+      end
+    end
+  end
+  if type(v) == "table" then
+    v = v[1]
+  end
+  return parse_retry_after(v, now)
 end
 
 local function default_retryable(code)
@@ -213,8 +305,8 @@ end
   input: string code | error table | full body with .error / .errors | nil
   meta:  optional { http_status|status=, retry_after=, headers=, request_id=, retryable= }
 
-  Returns { code, message, retryable, retry_after, request_id }
-  (retry_after / request_id may be nil). Field-map codes are non-retryable.
+  Returns { code, message, retryable, retry_after, request_id, limit }
+  (retry_after / request_id / limit may be nil; meta.now overrides clock for HTTP-date Retry-After). Field-map codes are non-retryable.
 ]]
 function GE.ParseErrorEnvelope(input, meta)
   if type(meta) ~= "table" then
@@ -293,18 +385,28 @@ function GE.ParseErrorEnvelope(input, meta)
     code = "session_expired"
   end
 
-  local retry_after = parse_retry_after(meta.retry_after)
+  local now = meta.now
+  local retry_after = parse_retry_after(meta.retry_after, now)
   if retry_after == nil and type(input) == "table" then
-    retry_after = parse_retry_after(input.retry_after)
+    retry_after = parse_retry_after(input.retry_after, now)
   end
   if retry_after == nil and type(err) == "table" then
-    retry_after = parse_retry_after(err.retry_after)
+    retry_after = parse_retry_after(err.retry_after, now)
   end
   if retry_after == nil then
-    retry_after = header_retry_after(meta.headers)
+    retry_after = header_retry_after(meta.headers, now)
   end
   if retry_after == nil and type(input) == "table" then
-    retry_after = header_retry_after(input.headers)
+    retry_after = header_retry_after(input.headers, now)
+  end
+
+  -- details.limit (e.g. list_limit_reached) when the server provides it.
+  local limit
+  if type(err) == "table" and type(err.details) == "table" then
+    local l = tonumber(err.details.limit)
+    if l and l == math.floor(l) and l > 0 then
+      limit = l
+    end
   end
 
   -- Explicit retryable from envelope wins; else meta; else code defaults.
@@ -347,6 +449,9 @@ function GE.ParseErrorEnvelope(input, meta)
   elseif code == "internal_error" and retry_after ~= nil then
     message = GE.SyncErrorMessage("internal_error")
       .. " Try again in " .. tostring(retry_after) .. " seconds."
+  elseif code == "list_limit_reached" and limit ~= nil then
+    message = "You already have " .. tostring(limit)
+      .. " gear sets on this character. Delete one before importing more."
   end
 
   return {
@@ -355,6 +460,7 @@ function GE.ParseErrorEnvelope(input, meta)
     retryable = retryable,
     retry_after = retry_after,
     request_id = request_id,
+    limit = limit,
   }
 end
 

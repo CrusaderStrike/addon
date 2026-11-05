@@ -1044,6 +1044,7 @@ function G.FailSync(charDB, local_id, code_or_detail, meta)
     retryable = parsed.retryable,
     retry_after = parsed.retry_after,
     request_id = parsed.request_id,
+    limit = parsed.limit,
     at = now_iso(),
   }
   list.last_sync_error = err
@@ -1061,6 +1062,7 @@ function G.FailSync(charDB, local_id, code_or_detail, meta)
     retryable = parsed.retryable,
     retry_after = parsed.retry_after,
     request_id = parsed.request_id,
+    limit = parsed.limit,
     pending_kept = pending_n,
     syncing = false,
   }
