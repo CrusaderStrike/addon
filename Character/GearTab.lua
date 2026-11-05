@@ -785,7 +785,18 @@ local RANGED = {
   WARLOCK = weapon_set({ SUB.WAND }),
 }
 
+-- Vanilla Forever 1.60.1: only warrior and rogue dual-wield. Hunters and
+-- shamans do not (that comes later). One-hand INVTYPE_WEAPON stays out of
+-- the off hand for those classes.
 local DUAL_WIELD = { WARRIOR = true, ROGUE = true }
+local MAINHAND_ONLY_LOC = { INVTYPE_WEAPONMAINHAND = true, INVTYPE_2HWEAPON = true }
+local OFFHAND_ONLY_LOC = { INVTYPE_WEAPONOFFHAND = true, INVTYPE_SHIELD = true, INVTYPE_HOLDABLE = true }
+local RANGED_ONLY_LOC = {
+  INVTYPE_RANGED = true,
+  INVTYPE_RANGEDRIGHT = true,
+  INVTYPE_THROWN = true,
+  INVTYPE_RELIC = true,
+}
 local TWOHAND_SUB = {
   [SUB.AXE2] = true, [SUB.MACE2] = true, [SUB.POLEARM] = true,
   [SUB.SWORD2] = true, [SUB.STAFF] = true, [SUB.SPEAR] = true,
@@ -1016,6 +1027,65 @@ local function class_can_wear(classToken, subClassID)
   return set[subClassID] == true
 end
 
+local function item_equip_loc(itemId)
+  itemId = tonumber(itemId)
+  if not itemId then
+    return nil
+  end
+  local known = KNOWN_WEAPONS[itemId]
+  if known and type(known.equipLoc) == "string" and known.equipLoc ~= "" then
+    return known.equipLoc
+  end
+  if type(GetItemInfoInstant) == "function" then
+    local ok, _, _, _, equipLoc = pcall(GetItemInfoInstant, itemId)
+    if ok and type(equipLoc) == "string" and equipLoc ~= "" then
+      return equipLoc:upper()
+    end
+  end
+  if type(GetItemInfo) == "function" then
+    local ok, _, _, _, _, _, _, _, _, equipLoc = pcall(GetItemInfo, itemId)
+    if ok and type(equipLoc) == "string" and equipLoc ~= "" then
+      return equipLoc:upper()
+    end
+  end
+  return nil
+end
+
+-- Where an equip location is allowed to land. Unknown locations are not blocked.
+local function loc_fits_slot(equipLoc, slot, classToken)
+  if MAINHAND_ONLY_LOC[equipLoc] then
+    if slot == "main_hand" then
+      return true
+    end
+    return false, "wrong_slot"
+  end
+  if OFFHAND_ONLY_LOC[equipLoc] then
+    if slot == "off_hand" then
+      return true
+    end
+    return false, "wrong_slot"
+  end
+  if RANGED_ONLY_LOC[equipLoc] then
+    if slot == "ranged" then
+      return true
+    end
+    return false, "wrong_slot"
+  end
+  if equipLoc == "INVTYPE_WEAPON" then
+    if slot == "main_hand" then
+      return true
+    end
+    if slot == "off_hand" then
+      if DUAL_WIELD[classToken] then
+        return true
+      end
+      return false, "dual_mainhand"
+    end
+    return false, "wrong_slot"
+  end
+  return true
+end
+
 local function is_two_hand(rec)
   if not rec then
     return false
@@ -1063,6 +1133,15 @@ function UI.CheckEquip(itemId, slot, previewSlots, classToken)
   local armor = armor_record(itemId)
   if armor and not class_can_wear(classToken, armor.subClassID) then
     return false, "class_armor"
+  end
+  if slot == "main_hand" or slot == "off_hand" or slot == "ranged" then
+    local equipLoc = item_equip_loc(itemId)
+    if equipLoc then
+      local locOk, locReason = loc_fits_slot(equipLoc, slot, classToken)
+      if not locOk then
+        return false, locReason
+      end
+    end
   end
   if slot ~= "main_hand" and slot ~= "off_hand" and slot ~= "ranged" then
     return true
@@ -1129,6 +1208,9 @@ function UI.AcceptsWeapon(itemId, gearSlot, classToken)
 end
 
 local function reject_status(reason, classToken)
+  if reason == "wrong_slot" then
+    return "That item does not go in that slot."
+  end
   if reason == "dual_mainhand" then
     return "Cannot equip two main-hand weapons."
   end

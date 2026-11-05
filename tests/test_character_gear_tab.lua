@@ -590,7 +590,7 @@ describe("character gear tab scaffold", function()
     UI.OnGearSlot("off_hand", "LeftButton")
     local okSecond, whySecond = UI.EquipItem(900004)
     eq(okSecond, false)
-    eq(whySecond, "dual_mainhand")
+    eq(whySecond, "wrong_slot")
     eq(UI.GetPreview().slots.off_hand, nil)
 
     slots = UI.GetPreview().slots
@@ -691,6 +691,83 @@ describe("character gear tab scaffold", function()
     eq(UI.AcceptsWeapon(910001, "chest", "MAGE"), true)
     _G.UnitClass = prevClass
     _G.UnitLevel = prevLevel
+    _G.GetItemInfoInstant = prevInfo
+    _G.CharacterFrame = prevChar
+  end)
+
+  it("rejects weapons that do not belong in the selected hand", function()
+    local UI = CrusaderStrike.CharacterGearTab
+    local prevClass = _G.UnitClass
+    local prevInfo = _G.GetItemInfoInstant
+    local prevChar = _G.CharacterFrame
+    _G.CharacterFrame = {
+      ModeTabs = { Tabs = {} },
+      shown = true,
+      IsShown = function(self) return self.shown end,
+    }
+    local info = {
+      [920001] = { "Weapon", "One-Handed Swords", "INVTYPE_WEAPONMAINHAND", 2, 7 },
+      [920002] = { "Weapon", "Two-Handed Swords", "INVTYPE_2HWEAPON", 2, 8 },
+      [920003] = { "Weapon", "One-Handed Swords", "INVTYPE_WEAPON", 2, 7 },
+      [920004] = { "Weapon", "Daggers", "INVTYPE_WEAPONOFFHAND", 2, 15 },
+      [920005] = { "Armor", "Shields", "INVTYPE_SHIELD", 4, 6 },
+      [920006] = { "Armor", "Miscellaneous", "INVTYPE_HOLDABLE", 4, 0 },
+      [920007] = { "Weapon", "Crossbows", "INVTYPE_RANGED", 2, 18 },
+      [920008] = { "Weapon", "Wands", "INVTYPE_RANGEDRIGHT", 2, 19 },
+    }
+    _G.GetItemInfoInstant = function(itemId)
+      local row = info[tonumber(itemId)]
+      if not row then
+        return prevInfo(itemId)
+      end
+      return itemId, row[1], row[2], row[3], "Interface\\Icons\\INV_CS_Item_" .. tostring(itemId), row[4], row[5]
+    end
+    local function clear_slots()
+      local slots = UI.GetPreview().slots
+      for slot in pairs(slots) do
+        slots[slot] = nil
+      end
+    end
+    local function try_slot(classToken, slotName, itemId)
+      _G.UnitClass = function() return classToken, classToken end
+      clear_slots()
+      UI.OnGearSlot(slotName, "LeftButton")
+      return UI.EquipItem(itemId)
+    end
+    UI.Show()
+    local okMH, whyMH = try_slot("WARRIOR", "off_hand", 920001)
+    eq(okMH, false)
+    eq(whyMH, "wrong_slot")
+    eq(UI.GetPreview().slots.off_hand, nil)
+    eq(select(1, try_slot("WARRIOR", "off_hand", 920002)), false)
+    eq(UI.GetPreview().slots.off_hand, nil)
+    ok(try_slot("WARRIOR", "main_hand", 920001))
+    eq(UI.GetPreview().slots.main_hand, 920001)
+    ok(try_slot("WARRIOR", "off_hand", 920003))
+    eq(UI.GetPreview().slots.off_hand, 920003)
+    local okOne, whyOne = try_slot("DRUID", "off_hand", 920003)
+    eq(okOne, false)
+    eq(whyOne, "dual_mainhand")
+    eq(UI.GetPreview().slots.off_hand, nil)
+    local okHunter, whyHunter = try_slot("HUNTER", "off_hand", 920003)
+    eq(okHunter, false)
+    eq(whyHunter, "dual_mainhand")
+    ok(try_slot("ROGUE", "off_hand", 920003))
+    eq(select(1, try_slot("WARRIOR", "main_hand", 920004)), false)
+    ok(try_slot("WARRIOR", "off_hand", 920004))
+    eq(select(1, try_slot("WARRIOR", "main_hand", 920005)), false)
+    ok(try_slot("WARRIOR", "off_hand", 920005))
+    eq(select(1, try_slot("MAGE", "main_hand", 920006)), false)
+    ok(try_slot("MAGE", "off_hand", 920006))
+    eq(select(1, try_slot("HUNTER", "main_hand", 920007)), false)
+    eq(select(1, try_slot("HUNTER", "off_hand", 920007)), false)
+    ok(try_slot("HUNTER", "ranged", 920007))
+    eq(select(1, try_slot("MAGE", "main_hand", 920008)), false)
+    ok(try_slot("MAGE", "ranged", 920008))
+    eq(UI.AcceptsWeapon(920001, "off_hand", "WARRIOR"), false)
+    eq(UI.AcceptsWeapon(920003, "off_hand", "WARRIOR"), true)
+    eq(UI.AcceptsWeapon(920003, "off_hand", "HUNTER"), false)
+    _G.UnitClass = prevClass
     _G.GetItemInfoInstant = prevInfo
     _G.CharacterFrame = prevChar
   end)
