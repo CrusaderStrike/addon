@@ -45,6 +45,17 @@ describe("bosses Forever", function()
     eq(CrusaderStrikeBosses.normalDifficultyId, 1)
   end)
 
+  it("keeps unverified Dalaran encounters out of the boss table", function()
+    local pe = CrusaderStrikeBosses.pendingForeverEncounters
+    eq(#pe, 2)
+    eq(pe[1].encounterId, 3301)
+    eq(pe[2].encounterId, 3312)
+    ok(pe[1].npcId == nil and pe[2].npcId == nil)
+    -- Shade of the Archmage (DungeonEncounter OrderIndex 9000) stays the final trigger.
+    ok(CrusaderStrikeBosses.IsFinalBoss("forever", 2959, 246020))
+    ok(not CrusaderStrikeBosses.IsFinalBoss("forever", 2959, 247126))
+  end)
+
   it("creature guid parse helper", function()
     -- Inline the same pattern DungeonLog uses (avoid loading CreateFrame-heavy files).
     local function creature_id_from_guid(guid)

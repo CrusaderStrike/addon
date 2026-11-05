@@ -143,3 +143,14 @@ DungeonEncounter lists **Mana Elemental** and **Mana Wraith** on map 2959; wowfw
 - `https://wago.tools/db2/Map/csv?build=1.60.1.70790`
 - `https://wago.tools/db2/DungeonEncounter/csv?build=1.60.1.70790`
 - `https://wago.tools/db2/MapDifficulty/csv?build=1.60.1.70790`
+
+## Groomed ticket B re-check (2026-11-04)
+Latest wago.tools `wowf` build is still **1.60.1.70790** (`https://wago.tools/api/builds`).
+
+- **5 pending dungeons** (The Drowned City, Krol'dok Stronghold, Alcaz Prison, Blackmaw Hold, Shaper's Terrace): still **no row** in `Map`, and no `DungeonEncounter` rows, in 1.60.1.70790. They remain TODO(unverified) in `pendingForeverDungeons`; no map, encounter or NPC IDs invented.
+- **City of Dalaran (2959)**, `DungeonEncounter` 1.60.1.70790 (Name, ID, OrderIndex): Arcane Anomaly 3298/0, Fel Ancient 3299/1000, Mana Devourer 3300/2000, Mana Elemental 3301/3000, Unstable Sentinel 3302/4000, Lyn the Ignored 3310/6000, Atrexis the Grave Knight 3311/7000, Mana Wraith 3312/8000, Shade of the Archmage 3303/9000.
+  - Final boss trigger: Shade of the Archmage has the highest OrderIndex (9000), so `finalNpcId = 246020` is unchanged.
+  - **Mana Elemental (encounter 3301)**: creature ID TODO(unverified). Wowhead Forever search lists `npc=240352` "mana-elemental" (and Classic-era 14689), but the NPC page returned 403 to our fetch, and 60.tools `creatures/240352` returns "Record not found". wowfwiki `Mana_Elemental` says the creature ID is unverified, and notes the Power Overwhelming achievement names Mana Elemental in text but links its kill counter to Arcanic Enigma.
+  - **Mana Wraith (encounter 3312)**: creature ID TODO(unverified). 60.tools `creatures/246931` exists as "Mana Wraith" (Elemental), but it has no recorded location, so nothing ties it to map 2959. wowfwiki `Mana_Wraith` says the creature ID is unverified.
+  - Encounter IDs are recorded in `CrusaderStrikeBosses.pendingForeverEncounters` with `npcId = nil`.
+- **Mismatch**: Arcanic Enigma (246016, in our table at order 5) has **no** `DungeonEncounter` row on map 2959. It may be the creature behind encounter 3301 "Mana Elemental" (per the wowfwiki achievement note), but that's unconfirmed, so the existing entry is left unchanged.

@@ -401,6 +401,15 @@ CrusaderStrikeBosses.pendingForeverDungeons = {
   { name = "Shaper's Terrace", levelRange = "58-60" },
 }
 
+-- City of Dalaran (map 2959) encounters present in Forever DungeonEncounter
+-- (build 1.60.1.70790) whose creature NPC IDs are still TODO(unverified):
+-- no Forever source ties a creature ID to these encounters in map 2959.
+-- encounterId/orderIndex are verified; npcId stays nil until confirmed.
+CrusaderStrikeBosses.pendingForeverEncounters = {
+  { instanceMapId = 2959, name = "Mana Elemental", encounterId = 3301, orderIndex = 3000, npcId = nil },
+  { instanceMapId = 2959, name = "Mana Wraith", encounterId = 3312, orderIndex = 8000, npcId = nil },
+}
+
 -- Forever 5-player Normal difficulty (MapDifficulty.db2 DifficultyID).
 CrusaderStrikeBosses.normalDifficultyId = 1
 
