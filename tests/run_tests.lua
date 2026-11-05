@@ -15,12 +15,14 @@ dofile(addon_root .. "tests/mock_wow.lua")
 
 -- Load pure modules directly (no CreateFrame side effects needed for most tests)
 dofile(addon_root .. "Data/Bosses.lua")
+dofile(addon_root .. "Data/Loot.lua")
 dofile(addon_root .. "Logic/Idempotency.lua")
 dofile(addon_root .. "Logic/Encoder.lua")
 dofile(addon_root .. "Logic/RunLifecycle.lua")
 dofile(addon_root .. "Logic/PvpHistory.lua")
 dofile(addon_root .. "Logic/Detection.lua")
 dofile(addon_root .. "Logic/DebugEvents.lua")
+dofile(addon_root .. "Logic/WishList.lua")
 
 local passed, failed = 0, 0
 local current = "?"
@@ -72,11 +74,13 @@ local files = {
   "test_pvp.lua",
   "test_pvp_events.lua",
   "test_detection.lua",
+  "test_wishlist.lua",
 }
 
 -- Load frame-facing modules for handler tests (CreateFrame stubbed in mock_wow).
 dofile(addon_root .. "Core.lua")
 dofile(addon_root .. "DungeonLog.lua")
+dofile(addon_root .. "LootBrowser.lua")
 
 io.write("CrusaderStrike tests (Lua " .. _VERSION .. ")\n")
 for _, f in ipairs(files) do

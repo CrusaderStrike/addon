@@ -2,6 +2,17 @@
 
 All notable changes to CrusaderStrike (World of Warcraft: Forever only).
 
+## 0.2.0 (WoW Forever)
+
+### Added
+- **Dungeon loot browser** (`/cs loot` / `/cs wishlist`): pick a Forever dungeon, browse boss loot with search and slot filter, and manage a per-character per-dungeon wish list stored in `CrusaderStrikeCharDB.wishLists` (SavedVariables schema v3).
+- Wish-list items can be added, removed, reordered (Shift/Alt-click), and marked obtained. Looting a wished item (`CHAT_MSG_LOOT`) marks it obtained automatically. While inside that dungeon, the browser banner shows how many wished items are still wanted.
+- Bundled **Ragefire Chasm** boss-rare loot with verified Forever item IDs (`Data/Loot.lua`). Other dungeons are listed from `Data/Bosses.lua` but have no loot rows yet — see `docs/loot-data.md`. No invented item IDs.
+
+### Notes
+- No combat-log usage. Loot detection uses `CHAT_MSG_LOOT` only.
+- Full Forever loot coverage is TODO(unverified); extend `Data/Loot.lua` using the format in `docs/loot-data.md` once IDs are confirmed.
+
 ## 0.1.1 (WoW Forever)
 
 ### Fixed

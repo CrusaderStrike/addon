@@ -15,6 +15,15 @@ _G.DEFAULT_CHAT_FRAME = {
 _G.UIParent = {}
 _G.GameFontNormalLarge = {}
 _G.GameFontHighlightSmall = {}
+_G.GameTooltip = {
+  SetOwner = noop,
+  SetItemByID = noop,
+  SetText = noop,
+  Show = noop,
+  Hide = noop,
+}
+_G.IsShiftKeyDown = function() return false end
+_G.IsAltKeyDown = function() return false end
 
 function _G.CreateFrame(frameType, name, parent, template)
   local f = {
@@ -44,8 +53,26 @@ function _G.CreateFrame(frameType, name, parent, template)
   function f:SetBackdrop() end
   function f:SetBackdropColor() end
   function f:CreateFontString()
-    return { SetPoint = noop, SetText = noop }
+    return {
+      SetPoint = noop,
+      SetText = noop,
+      SetWidth = noop,
+      SetJustifyH = noop,
+      SetTextColor = noop,
+    }
   end
+  function f:CreateTexture()
+    return { SetSize = noop, SetPoint = noop, SetTexture = noop }
+  end
+  function f:IsShown()
+    return self._shown
+  end
+  function f:ClearFocus() end
+  function f:GetText() return self._text end
+  function f:SetJustifyH() end
+  function f:SetTextColor() end
+  function f:SetOwner() end
+  function f:SetItemByID() end
   function f:SetMultiLine() end
   function f:SetFontObject() end
   function f:SetWidth() end
@@ -108,16 +135,19 @@ function M.load_addon()
   end
   local files = {
     "Data/Bosses.lua",
+    "Data/Loot.lua",
     "Logic/Idempotency.lua",
     "Logic/Encoder.lua",
     "Logic/RunLifecycle.lua",
     "Logic/PvpHistory.lua",
     "Logic/Detection.lua",
     "Logic/DebugEvents.lua",
+    "Logic/WishList.lua",
     "Core.lua",
     "DungeonLog.lua",
     "Export.lua",
     "PvpLog.lua",
+    "LootBrowser.lua",
   }
   for _, rel in ipairs(files) do
     local path = base .. "/" .. rel
