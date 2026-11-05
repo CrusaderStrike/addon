@@ -163,6 +163,46 @@ Checked against Ketho/BlizzardInterfaceResources branch `forever` (`Resources/Gl
 - **Not in Forever (mismatch with ticket A wording):**
   - `GetBattlefieldScore` is absent; the scoreboard is read with `C_PvP.GetScoreInfo*` (PVPScoreInfo: https://warcraft.wiki.gg/wiki/Structure_PVPScoreInfo).
   - Global `GetZonePVPInfo` is absent; `C_PvP.GetZonePVPInfo` is used.
-  - `CombatLogGetCurrentEventInfo` is absent from the Forever global API. It was deprecated in 12.0 (https://warcraft.wiki.gg/wiki/API_CombatLogGetCurrentEventInfo); the Forever deprecation shim maps it to `C_CombatLog.GetCurrentEventInfo`, which "has been relocated to the secure environment" (https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_DeprecatedCombatLog/Deprecated_CombatLog.lua) and is not in GlobalAPI. `COMBAT_LOG_EVENT_UNFILTERED` still fires but its payload can't be read. PvpLog only uses the combat log behind a `pcall` capability check. **This also affects DungeonLog.lua boss/death tracking (UNIT_DIED via CLEU)** — TODO(unverified) in-game, needs its own ticket.
+  - `CombatLogGetCurrentEventInfo` is absent from the Forever global API. It was deprecated in 12.0 (https://warcraft.wiki.gg/wiki/API_CombatLogGetCurrentEventInfo); the Forever deprecation shim maps it to `C_CombatLog.GetCurrentEventInfo`, which "has been relocated to the secure environment" (https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_DeprecatedCombatLog/Deprecated_CombatLog.lua) and is not in GlobalAPI. `COMBAT_LOG_EVENT_UNFILTERED` still fires but its payload can't be read. PvpLog only uses the combat log behind a `pcall` capability check. DungeonLog no longer depends on CLEU reads; see "Dungeon detection without combat log" below.
 - **Verified: `PVPScoreInfo.honorGained`** (plus `killingBlows`, `honorableKills`, `deaths`) in Forever's generated API docs: https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_APIDocumentationGenerated/PvpInfoDocumentation.lua (`PVPScoreInfo` struct).
 - TODO(unverified): whether `PLAYER_PVP_KILLS_CHANGED`'s `unitTarget` still resolves to the victim after it dies in Forever (Warcraft Wiki lists the event for mainline and classic game types, not `forever` explicitly: https://warcraft.wiki.gg/wiki/PLAYER_PVP_KILLS_CHANGED). If it doesn't, opponent fields are null and the kill is still counted.
+
+## Dungeon detection without combat log (P0, 2026-11-04)
+
+Forever 1.60.1 shares the mainline 12.x UI stack. Combat-log payload reads are not
+available to addons:
+
+- Ketho/BlizzardInterfaceResources branch `forever` `Resources/GlobalAPI.lua` has
+  **no** `CombatLogGetCurrentEventInfo` (has `C_CombatLog.IsCombatLogRestricted`, etc.).
+  https://github.com/Ketho/BlizzardInterfaceResources/tree/forever
+- Warcraft Wiki: `CombatLogGetCurrentEventInfo` deprecated; CLEU payload via that API
+  is not addon-callable on 12.x. https://warcraft.wiki.gg/wiki/API_CombatLogGetCurrentEventInfo
+- Gethe/wow-ui-source forever `Blizzard_DeprecatedCombatLog` maps the old global to a
+  secure-environment relocation (same conclusion as the PvP sources note).
+
+### Events used for dungeon boss/death detection (present in forever Events.lua)
+
+| Event | Role | Citation |
+|-------|------|----------|
+| `ENCOUNTER_START` / `ENCOUNTER_END` | Primary boss kill/wipe (`success` 1/0) | Ketho forever Events.lua; https://warcraft.wiki.gg/wiki/ENCOUNTER_END |
+| `BOSS_KILL` | Secondary kill (`encounterID`, `encounterName`) | Ketho forever Events.lua; https://warcraft.wiki.gg/wiki/BOSS_KILL |
+| `INSTANCE_ENCOUNTER_ENGAGE_UNIT` | Fallback: refresh `boss1`–`boss5` tokens | Ketho forever Events.lua |
+| `UNIT_HEALTH` / `UNIT_FLAGS` | Fallback boss UnitIsDead; party death edges | Ketho forever Events.lua |
+| `PLAYER_DEAD` | Player death (debounce: Forever may double-fire — forever-lint FL013) | Ketho forever Events.lua |
+| `COMBAT_LOG_EVENT_UNFILTERED` | **Debug probe only** (pcall register + pcall read); never drives kills/deaths | Ketho forever Events.lua lists it; payload unreadable |
+
+### EncounterID → NPC mapping
+
+`CrusaderStrikeBosses.byEncounterId` is built from wago.tools `DungeonEncounter` CSV
+build **1.60.1.70790** matched to NPC IDs in `Data/Bosses.lua` (186 verified rows).
+Name mismatches kept with comments (`Infurnus`→Magmatus, `The Butcher`→The Baron,
+Deadmines encounter `Sneed`→NPC 643). Mana Elemental (3301) and Mana Wraith (3312)
+remain in `pendingForeverEncounters` with `npcId = nil` (TODO unverified).
+
+### TODO(unverified) in live Forever
+
+- Whether every Classic-lineage dungeon fires `ENCOUNTER_END` / `BOSS_KILL` for each
+  bundled boss (in-game check — see `docs/forever-event-check.md`).
+- Boss-unit fallback reliability when encounter events are missing.
+- Party `UNIT_FLAGS`/`UNIT_HEALTH` death edges for `party1`–`party4` (not only player).
+

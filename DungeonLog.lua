@@ -1,11 +1,22 @@
 --[[
-  Instance detection, party snapshot, CLEU boss/death tracking, close/resume/abandon.
+  Instance detection, party snapshot, boss/death tracking for WoW Forever.
+
+  Forever 1.60.1 runs on the 12.x UI stack: CombatLogGetCurrentEventInfo is not
+  callable by addons (missing from Ketho forever GlobalAPI; protected on 12.x).
+  Boss kills use ENCOUNTER_END (success=1) / BOSS_KILL with verified DungeonEncounter
+  IDs, plus a boss-unit UnitIsDead fallback. Party deaths use PLAYER_DEAD and
+  UNIT_HEALTH/UNIT_FLAGS on player/party1-4. CLEU is registered only via pcall and
+  never drives production detection (debug probe only).
 ]]
 
 CrusaderStrike = CrusaderStrike or {}
 local CS = CrusaderStrike
 CS.DungeonLog = CS.DungeonLog or {}
 local DL = CS.DungeonLog
+
+local deathTracker = CrusaderStrikeDetection.NewDeathTracker(5)
+local engagedBosses = {} -- [unitToken] = { npcId=..., name=..., guid=... }
+local cleuRegistered = false
 
 local function now()
   if GetServerTime then
@@ -18,12 +29,10 @@ local function creature_id_from_guid(guid)
   if not guid or type(guid) ~= "string" then
     return nil
   end
-  -- Unit GUID: Creature-0-xxxx-xxxx-xxxx-NPCID-spawn
   local id = guid:match("^Creature%-%d+%-%d+%-%d+%-%d+%-(%d+)%-")
   if id then
     return tonumber(id)
   end
-  -- Older / alternate forms
   id = guid:match("Creature%-.-%-(%d+)%-%x+$")
   return id and tonumber(id) or nil
 end
@@ -71,12 +80,10 @@ local function in_party_dungeon()
   if not inInstance then
     return false
   end
-  -- Dungeons are "party"; reject raids/pvp for addon#1.
   return instanceType == "party"
 end
 
 local function read_instance()
-  -- name, instanceType, difficultyID, difficultyName, maxPlayers, dynamicDifficulty, isDynamic, instanceMapID
   local name, instanceType, difficultyID, difficultyName, maxPlayers, _, _, instanceMapID = GetInstanceInfo()
   return {
     name = name,
@@ -93,9 +100,16 @@ local function resume_window()
   return (accountDB and accountDB.settings and accountDB.settings.resumeWindowSec) or (3 * 60 * 60)
 end
 
--- Abandon any in_progress run that does not match the current party instance
--- (nil currentInstanceId = outside a dungeon). Persists abandoned rows and clears
--- activeRunKey when the active run was among them.
+local function safe_register(frame, event)
+  local ok, err = pcall(function()
+    frame:RegisterEvent(event)
+  end)
+  if not ok then
+    CS.Debug("RegisterEvent failed: " .. tostring(event) .. " :: " .. tostring(err))
+  end
+  return ok
+end
+
 function DL.ReconcileStale(currentInstanceId)
   local charDB = CS.GetCharDB()
   if not charDB or type(charDB.runs) ~= "table" then
@@ -132,7 +146,6 @@ function DL.TryStartOrResume()
     return
   end
 
-  -- Close leftovers from another dungeon / crash before starting or resuming.
   DL.ReconcileStale(inst.id)
 
   local charDB = CS.GetCharDB()
@@ -147,7 +160,6 @@ function DL.TryStartOrResume()
     return
   end
 
-  -- Also search recent closed runs for same instance (leave-reenter within window).
   if not existing or existing.status ~= "in_progress" then
     local best
     for _, run in pairs(charDB.runs or {}) do
@@ -167,7 +179,7 @@ function DL.TryStartOrResume()
   elseif existing and existing.status == "in_progress" and existing.instance.id == inst.id then
     CrusaderStrikeRunLifecycle.Touch(existing, now())
     CS.StoreRun(existing)
-    return -- already tracking
+    return
   end
 
   local realm = GetNormalizedRealmName and GetNormalizedRealmName() or GetRealmName()
@@ -198,93 +210,255 @@ function DL.CloseActive(reason)
   CS.Debug("Closed run (" .. tostring(reason) .. "): " .. run.idempotencyKey)
 end
 
-local function on_cleu()
+local function apply_boss_kill(run, npcId, bossName, killedAt)
+  if not run or not npcId then
+    return false
+  end
+  if CrusaderStrikeRunLifecycle.RecordBossKill(run, npcId, bossName, killedAt) then
+    CS.Debug("Boss kill: " .. tostring(bossName))
+    if CrusaderStrikeBosses.IsFinalBoss(run.gameVersion, run.instance.id, npcId) then
+      CrusaderStrikeRunLifecycle.MarkCompleted(run, killedAt)
+      CS.Print("Dungeon completed: " .. (run.instance.name or ""))
+    end
+    CS.StoreRun(run)
+    return true
+  end
+  return false
+end
+
+-- Primary Forever path: ENCOUNTER_END / BOSS_KILL with verified encounter IDs.
+function DL.HandleEncounterEnd(encounterID, encounterName, _difficultyID, _groupSize, success)
   local run = CS.GetActiveRun()
   if not run or run.status ~= "in_progress" then
-    return
+    return false
   end
-
-  local timestamp, subevent, _, sourceGUID, sourceName, _, _, destGUID, destName, destFlags =
-    CombatLogGetCurrentEventInfo()
-
-  if subevent ~= "UNIT_DIED" then
-    return
+  if CS.DebugEvents then
+    CS.DebugEvents.Note("ENCOUNTER_END", now(), {
+      encounterID = encounterID,
+      encounterName = encounterName,
+      success = success,
+    })
   end
-
-  local npcId = creature_id_from_guid(destGUID)
-  if npcId then
-    local boss, dungeon = CrusaderStrikeBosses.Lookup(run.gameVersion, run.instance.id, npcId)
-    if boss then
-      local killedAt = now()
-      if CrusaderStrikeRunLifecycle.RecordBossKill(run, npcId, boss.name, killedAt) then
-        CS.Debug("Boss kill: " .. boss.name)
-        if CrusaderStrikeBosses.IsFinalBoss(run.gameVersion, run.instance.id, npcId) then
-          CrusaderStrikeRunLifecycle.MarkCompleted(run, killedAt)
-          CS.Print("Dungeon completed: " .. (run.instance.name or ""))
-        end
-        CS.StoreRun(run)
-      end
-    end
-    return
+  if not CrusaderStrikeDetection.EncounterSucceeded(success) then
+    CS.Debug("Encounter wipe (not a kill): " .. tostring(encounterName or encounterID))
+    return false
   end
+  local row = CrusaderStrikeBosses.LookupByEncounter(run.gameVersion, encounterID)
+  if not row then
+    -- TODO(unverified): encounter fired but no verified npc mapping (e.g. Mana Elemental).
+    CS.Debug("Unmapped encounter kill: " .. tostring(encounterID) .. " " .. tostring(encounterName))
+    return false
+  end
+  if row.instanceMapId and run.instance.id and row.instanceMapId ~= run.instance.id then
+    CS.Debug("Encounter map mismatch: " .. tostring(row.instanceMapId) .. " vs " .. tostring(run.instance.id))
+    return false
+  end
+  return apply_boss_kill(run, row.npcId, row.name or encounterName, now())
+end
 
-  -- Player death: destGUID Unit- / Player-
-  if destGUID and (destGUID:match("^Player%-") or destGUID:match("^Unit%-")) then
-    -- Only log if dest is in our party snapshot names (or current group).
-    local name = destName
-    local realm = run.realm
-    if name then
-      local n, r = CrusaderStrikeRunLifecycle.SplitNameRealm(name)
-      if r then
-        name, realm = n, r
+function DL.HandleBossKill(encounterID, encounterName)
+  local run = CS.GetActiveRun()
+  if not run or run.status ~= "in_progress" then
+    return false
+  end
+  if CS.DebugEvents then
+    CS.DebugEvents.Note("BOSS_KILL", now(), {
+      encounterID = encounterID,
+      encounterName = encounterName,
+    })
+  end
+  local row = CrusaderStrikeBosses.LookupByEncounter(run.gameVersion, encounterID)
+  if not row then
+    CS.Debug("Unmapped BOSS_KILL: " .. tostring(encounterID) .. " " .. tostring(encounterName))
+    return false
+  end
+  if row.instanceMapId and run.instance.id and row.instanceMapId ~= run.instance.id then
+    return false
+  end
+  return apply_boss_kill(run, row.npcId, row.name or encounterName, now())
+end
+
+-- Fallback when encounter events are missing: boss1-5 UnitIsDead after engage.
+function DL.RefreshEngagedBosses()
+  for i = 1, 5 do
+    local unit = "boss" .. i
+    if UnitExists and UnitExists(unit) then
+      local guid = UnitGUID and UnitGUID(unit)
+      local npcId = creature_id_from_guid(guid)
+      local name = UnitName and UnitName(unit)
+      if npcId then
+        engagedBosses[unit] = { npcId = npcId, name = name, guid = guid }
       end
-    end
-    local inParty = false
-    for _, p in ipairs(run.party or {}) do
-      if p.name == name then
-        inParty = true
-        realm = p.realm or realm
-        break
-      end
-    end
-    -- Also accept current group
-    if not inParty then
-      if UnitInParty and destName then
-        -- Best-effort: match party units by name
-        local pname = UnitName("player")
-        if CrusaderStrikeRunLifecycle.NameMatches(destName, pname) then
-          inParty = true
-        end
-        for i = 1, 4 do
-          local pn = UnitName("party" .. i)
-          if CrusaderStrikeRunLifecycle.NameMatches(destName, pn) then
-            inParty = true
-            break
-          end
-        end
-      end
-    end
-    if inParty and name then
-      CrusaderStrikeRunLifecycle.RecordDeath(run, name, realm, now(), sourceName)
-      CS.StoreRun(run)
-      CS.Debug("Death: " .. name)
     end
   end
 end
 
+function DL.HandleBossUnitDead(unit)
+  local run = CS.GetActiveRun()
+  if not run or run.status ~= "in_progress" then
+    return false
+  end
+  local info = engagedBosses[unit]
+  if not info or not info.npcId then
+    -- Try live read
+    if not (UnitExists and UnitExists(unit)) then
+      return false
+    end
+    local guid = UnitGUID and UnitGUID(unit)
+    local npcId = creature_id_from_guid(guid)
+    if not npcId then
+      return false
+    end
+    info = { npcId = npcId, name = UnitName and UnitName(unit), guid = guid }
+    engagedBosses[unit] = info
+  end
+  local boss = CrusaderStrikeBosses.Lookup(run.gameVersion, run.instance.id, info.npcId)
+  if not boss then
+    return false
+  end
+  if CS.DebugEvents then
+    CS.DebugEvents.Note("BOSS_UNIT_DEAD", now(), { unit = unit, npcId = info.npcId, name = info.name })
+  end
+  return apply_boss_kill(run, info.npcId, boss.name or info.name, now())
+end
+
+local function record_party_death(unit, name, realm)
+  local run = CS.GetActiveRun()
+  if not run or run.status ~= "in_progress" then
+    return false
+  end
+  if not name then
+    name, realm = unit_name_realm(unit)
+  end
+  if not name then
+    return false
+  end
+  CrusaderStrikeRunLifecycle.RecordDeath(run, name, realm, now(), nil)
+  CS.StoreRun(run)
+  CS.Debug("Death: " .. name)
+  if CS.DebugEvents then
+    CS.DebugEvents.Note("PARTY_DEATH", now(), { unit = unit, name = name, realm = realm })
+  end
+  return true
+end
+
+-- Poll path: alive->dead edge via UnitIsDeadOrGhost (counts once; rez clears).
+function DL.HandlePartyDeath(unit)
+  if not (UnitExists and UnitExists(unit)) then
+    if deathTracker.dead[unit] then
+      CrusaderStrikeDetection.DeathTransition(deathTracker, unit, false, now())
+    end
+    return false
+  end
+  local isDead = CrusaderStrikeDetection.IsUnitDeadOrGhost(unit)
+  local transition = CrusaderStrikeDetection.DeathTransition(deathTracker, unit, isDead, now())
+  if transition ~= "death" then
+    return false
+  end
+  return record_party_death(unit)
+end
+
+-- Force a death edge (PLAYER_DEAD), with debounce against Forever double-fire.
+function DL.HandlePlayerDeadEvent()
+  local name, realm = unit_name_realm("player")
+  if not name then
+    return false
+  end
+  local transition = CrusaderStrikeDetection.DeathTransition(deathTracker, "player", true, now())
+  if transition ~= "death" then
+    return false
+  end
+  local ok = record_party_death("player", name, realm)
+  if ok and CS.DebugEvents then
+    CS.DebugEvents.Note("PLAYER_DEAD", now(), { name = name, realm = realm })
+  end
+  return ok
+end
+
+function DL.PollPartyDeathRez()
+  for _, unit in ipairs({ "player", "party1", "party2", "party3", "party4" }) do
+    DL.HandlePartyDeath(unit)
+  end
+end
+
+-- Debug / guarded only: never used for production boss/death detection.
+function DL.OnCombatLogEventUnfiltered()
+  if CS.DebugEvents then
+    local ok, info, detail = CrusaderStrikeDetection.TryReadCombatLog()
+    CS.DebugEvents.Note("COMBAT_LOG_EVENT_UNFILTERED", now(), {
+      cleuCallable = ok,
+      detail = detail,
+      subevent = info and info.subevent or nil,
+    })
+  end
+end
+
 local frame = CreateFrame("Frame", "CrusaderStrikeDungeonLogFrame")
-frame:RegisterEvent("PLAYER_ENTERING_WORLD")
-frame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-frame:RegisterEvent("GROUP_ROSTER_UPDATE")
-frame:SetScript("OnEvent", function(_, event)
+safe_register(frame, "PLAYER_ENTERING_WORLD")
+safe_register(frame, "ZONE_CHANGED_NEW_AREA")
+safe_register(frame, "GROUP_ROSTER_UPDATE")
+safe_register(frame, "ENCOUNTER_START")
+safe_register(frame, "ENCOUNTER_END")
+safe_register(frame, "BOSS_KILL")
+safe_register(frame, "INSTANCE_ENCOUNTER_ENGAGE_UNIT")
+safe_register(frame, "PLAYER_DEAD")
+safe_register(frame, "UNIT_HEALTH")
+safe_register(frame, "UNIT_FLAGS")
+-- CLEU: may error on Forever registration; probe only for /cs debug events.
+cleuRegistered = safe_register(frame, "COMBAT_LOG_EVENT_UNFILTERED")
+
+-- UNIT_* needs unit tokens on some clients
+if frame.RegisterUnitEvent then
+  pcall(function()
+    for _, u in ipairs({ "player", "party1", "party2", "party3", "party4", "boss1", "boss2", "boss3", "boss4", "boss5" }) do
+      frame:RegisterUnitEvent("UNIT_HEALTH", u)
+      frame:RegisterUnitEvent("UNIT_FLAGS", u)
+    end
+  end)
+end
+
+frame:SetScript("OnEvent", function(_, event, arg1, arg2, arg3, arg4, arg5, ...)
   if event == "COMBAT_LOG_EVENT_UNFILTERED" then
-    on_cleu()
+    DL.OnCombatLogEventUnfiltered()
+  elseif event == "ENCOUNTER_START" then
+    if CS.DebugEvents then
+      CS.DebugEvents.Note("ENCOUNTER_START", now(), {
+        encounterID = arg1,
+        encounterName = arg2,
+        difficultyID = arg3,
+        groupSize = arg4,
+      })
+    end
+    DL.RefreshEngagedBosses()
+  elseif event == "ENCOUNTER_END" then
+    DL.HandleEncounterEnd(arg1, arg2, arg3, arg4, arg5)
+  elseif event == "BOSS_KILL" then
+    DL.HandleBossKill(arg1, arg2)
+  elseif event == "INSTANCE_ENCOUNTER_ENGAGE_UNIT" then
+    if CS.DebugEvents then
+      CS.DebugEvents.Note("INSTANCE_ENCOUNTER_ENGAGE_UNIT", now(), {})
+    end
+    DL.RefreshEngagedBosses()
+  elseif event == "PLAYER_DEAD" then
+    DL.HandlePlayerDeadEvent()
+  elseif event == "UNIT_HEALTH" or event == "UNIT_FLAGS" then
+    local unit = arg1
+    if not unit then
+      return
+    end
+    if unit:match("^boss%d$") then
+      if CrusaderStrikeDetection.IsUnitDeadOrGhost(unit) or (UnitIsDead and UnitIsDead(unit)) then
+        DL.HandleBossUnitDead(unit)
+      end
+    elseif unit == "player" or unit:match("^party%d$") then
+      DL.PollPartyDeathRez()
+    end
   elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
+    engagedBosses = {}
+    deathTracker = CrusaderStrikeDetection.NewDeathTracker(5)
     if in_party_dungeon() then
       DL.TryStartOrResume()
     else
-      -- Hearth / port / zone change outside the instance: abandon any leftover in_progress.
       DL.ReconcileStale(nil)
       DL.CloseActive(event)
       local active = CS.GetActiveRun()
@@ -295,7 +469,6 @@ frame:SetScript("OnEvent", function(_, event)
   elseif event == "GROUP_ROSTER_UPDATE" then
     local run = CS.GetActiveRun()
     if run and run.status == "in_progress" then
-      -- Refresh party snapshot on roster changes (join mid-run).
       run.party = snapshot_party()
       CrusaderStrikeRunLifecycle.Touch(run, now())
       CS.StoreRun(run)
@@ -307,11 +480,19 @@ function DL.OnLogin()
   if in_party_dungeon() then
     DL.TryStartOrResume()
   else
-    -- Crash / relog outside the dungeon: abandon stale in_progress runs.
     DL.ReconcileStale(nil)
   end
 end
 
--- Expose pure helpers for tests (mirrors Logic, with GUID parse).
+function DL.CleuRegistered()
+  return cleuRegistered
+end
+
 DL.CreatureIdFromGuid = creature_id_from_guid
 DL.SnapshotParty = snapshot_party
+DL._deathTracker = function()
+  return deathTracker
+end
+DL._resetDeathTracker = function()
+  deathTracker = CrusaderStrikeDetection.NewDeathTracker(5)
+end
