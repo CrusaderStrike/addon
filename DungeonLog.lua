@@ -1,5 +1,5 @@
 --[[
-  Instance detection, party snapshot, CLEU boss/death tracking, close/resume.
+  Instance detection, party snapshot, CLEU boss/death tracking, close/resume/abandon.
 ]]
 
 CrusaderStrike = CrusaderStrike or {}
@@ -88,6 +88,41 @@ local function read_instance()
   }
 end
 
+local function resume_window()
+  local accountDB = CS.GetAccountDB()
+  return (accountDB and accountDB.settings and accountDB.settings.resumeWindowSec) or (3 * 60 * 60)
+end
+
+-- Abandon any in_progress run that does not match the current party instance
+-- (nil currentInstanceId = outside a dungeon). Persists abandoned rows and clears
+-- activeRunKey when the active run was among them.
+function DL.ReconcileStale(currentInstanceId)
+  local charDB = CS.GetCharDB()
+  if not charDB or type(charDB.runs) ~= "table" then
+    return
+  end
+  local result = CrusaderStrikeRunLifecycle.ReconcileStale(charDB.runs, {
+    currentInstanceId = currentInstanceId,
+    nowUnix = now(),
+    resumeWindowSec = resume_window(),
+  })
+  for _, run in ipairs(result.abandoned) do
+    CS.StoreRun(run)
+    CS.Debug("Abandoned stale run: " .. tostring(run.idempotencyKey))
+  end
+  if #result.abandoned > 0 then
+    local active = CS.GetActiveRun()
+    if not active or active.status ~= "in_progress" then
+      CS.ClearActiveRunKey()
+    end
+  end
+  if result.kept then
+    CrusaderStrikeRunLifecycle.Touch(result.kept, now())
+    CS.StoreRun(result.kept)
+  end
+  return result
+end
+
 function DL.TryStartOrResume()
   if not in_party_dungeon() then
     return
@@ -97,20 +132,23 @@ function DL.TryStartOrResume()
     return
   end
 
+  -- Close leftovers from another dungeon / crash before starting or resuming.
+  DL.ReconcileStale(inst.id)
+
   local charDB = CS.GetCharDB()
-  local accountDB = CS.GetAccountDB()
-  local window = accountDB.settings.resumeWindowSec or (3 * 60 * 60)
+  local window = resume_window()
   local existing = CS.GetActiveRun()
 
   if CrusaderStrikeRunLifecycle.ShouldResume(existing, inst.id, now(), window) then
     CrusaderStrikeRunLifecycle.Resume(existing)
+    CrusaderStrikeRunLifecycle.Touch(existing, now())
     CS.StoreRun(existing)
     CS.Debug("Resumed run " .. existing.idempotencyKey)
     return
   end
 
-  -- Also search recent closed runs for same instance (reload / leave-reenter).
-  if not existing then
+  -- Also search recent closed runs for same instance (leave-reenter within window).
+  if not existing or existing.status ~= "in_progress" then
     local best
     for _, run in pairs(charDB.runs or {}) do
       if CrusaderStrikeRunLifecycle.ShouldResume(run, inst.id, now(), window) then
@@ -121,11 +159,14 @@ function DL.TryStartOrResume()
     end
     if best then
       CrusaderStrikeRunLifecycle.Resume(best)
+      CrusaderStrikeRunLifecycle.Touch(best, now())
       CS.StoreRun(best)
       CS.Debug("Resumed stored run " .. best.idempotencyKey)
       return
     end
   elseif existing and existing.status == "in_progress" and existing.instance.id == inst.id then
+    CrusaderStrikeRunLifecycle.Touch(existing, now())
+    CS.StoreRun(existing)
     return -- already tracking
   end
 
@@ -243,13 +284,20 @@ frame:SetScript("OnEvent", function(_, event)
     if in_party_dungeon() then
       DL.TryStartOrResume()
     else
+      -- Hearth / port / zone change outside the instance: abandon any leftover in_progress.
+      DL.ReconcileStale(nil)
       DL.CloseActive(event)
+      local active = CS.GetActiveRun()
+      if active and active.status ~= "in_progress" then
+        CS.ClearActiveRunKey()
+      end
     end
   elseif event == "GROUP_ROSTER_UPDATE" then
     local run = CS.GetActiveRun()
     if run and run.status == "in_progress" then
       -- Refresh party snapshot on roster changes (join mid-run).
       run.party = snapshot_party()
+      CrusaderStrikeRunLifecycle.Touch(run, now())
       CS.StoreRun(run)
     end
   end
@@ -258,6 +306,9 @@ end)
 function DL.OnLogin()
   if in_party_dungeon() then
     DL.TryStartOrResume()
+  else
+    -- Crash / relog outside the dungeon: abandon stale in_progress runs.
+    DL.ReconcileStale(nil)
   end
 end
 
