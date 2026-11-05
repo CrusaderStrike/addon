@@ -689,6 +689,14 @@ describe("character gear tab scaffold", function()
     eq(UI.AcceptsWeapon(910003, nil, "DRUID"), false)
     eq(UI.AcceptsWeapon(910004, "chest", "WARRIOR"), true)
     eq(UI.AcceptsWeapon(910001, "chest", "MAGE"), true)
+    eq(UI.AcceptsWeapon(910003, "wrist", "DRUID"), false)
+    eq(UI.AcceptsWeapon(910003, "back", "DRUID"), true)
+    eq(UI.AcceptsWeapon(910002, "hands", "DRUID"), true)
+    _G.UnitClass = function() return "Druid", "DRUID" end
+    clear_slots()
+    UI.OnGearSlot("back", "LeftButton")
+    ok(UI.EquipItem(910003))
+    eq(UI.GetPreview().slots.back, 910003)
     _G.UnitClass = prevClass
     _G.UnitLevel = prevLevel
     _G.GetItemInfoInstant = prevInfo

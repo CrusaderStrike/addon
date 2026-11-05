@@ -22,9 +22,11 @@
 --
 -- Weapon equip uses vanilla class proficiency (Forever 1.60.1 / Classic):
 -- a Druid cannot take swords or crossbows, and nobody can wear two main-hand
--- weapons. Armor is class-only, with no level gate: druid/rogue wear cloth
--- and leather; shaman/hunter also mail at any level; paladin/warrior also
--- plate; mage/priest/warlock cloth only.
+-- weapons. Armor slots (head, shoulder, chest, waist, legs, feet, wrist,
+-- hands) are class-only, with no level gate: druid/rogue wear cloth and
+-- leather; shaman/hunter also mail at any level; paladin/warrior also plate;
+-- mage/priest/warlock cloth only. Cloaks, rings, necks, and trinkets are not
+-- filtered by armor type.
 -- Left-click a browser item to equip it into the current gear set; right-click
 -- a CS gear-set slot to unequip. AtlasLoot Classic data.lua is a layout
 -- reference only (GPL-2.0). See docs/character-gear-tab.md.
@@ -1006,11 +1008,26 @@ local function armor_record(itemId)
       end
     end
   end
+  if rec.subClassID == nil and type(rec.subType) == "string" then
+    local key = rec.subType:lower()
+    rec.subClassID = ARMOR_NAME[key]
+    if not rec.subClassID then
+      if key:find("plate", 1, true) then
+        rec.subClassID = ARMOR_SUB.PLATE
+      elseif key:find("mail", 1, true) then
+        rec.subClassID = ARMOR_SUB.MAIL
+      elseif key:find("leather", 1, true) then
+        rec.subClassID = ARMOR_SUB.LEATHER
+      elseif key:find("cloth", 1, true) then
+        rec.subClassID = ARMOR_SUB.CLOTH
+      end
+    end
+  end
+  if rec.subClassID and rec.classID ~= 4 and rec.classID ~= 2 then
+    rec.classID = 4
+  end
   if rec.classID ~= 4 then
     return nil
-  end
-  if rec.subClassID == nil and type(rec.subType) == "string" then
-    rec.subClassID = ARMOR_NAME[rec.subType:lower()]
   end
   if rec.subClassID ~= ARMOR_SUB.CLOTH and rec.subClassID ~= ARMOR_SUB.LEATHER
       and rec.subClassID ~= ARMOR_SUB.MAIL and rec.subClassID ~= ARMOR_SUB.PLATE then
@@ -1018,6 +1035,19 @@ local function armor_record(itemId)
   end
   return rec
 end
+
+-- No level check. until_level on a gear set is not armor proficiency.
+-- Hunter/shaman mail and warrior/paladin plate are allowed at any level.
+local ARMOR_SLOTS = {
+  head = true,
+  shoulder = true,
+  chest = true,
+  waist = true,
+  legs = true,
+  feet = true,
+  wrist = true,
+  hands = true,
+}
 
 local function class_can_wear(classToken, subClassID)
   local set = classToken and ARMOR_ALLOWED[classToken]
@@ -1131,7 +1161,7 @@ end
 function UI.CheckEquip(itemId, slot, previewSlots, classToken)
   classToken = classToken or UI.PlayerClassToken()
   local armor = armor_record(itemId)
-  if armor and not class_can_wear(classToken, armor.subClassID) then
+  if armor and ARMOR_SLOTS[slot] and not class_can_wear(classToken, armor.subClassID) then
     return false, "class_armor"
   end
   if slot == "main_hand" or slot == "off_hand" or slot == "ranged" then
@@ -1182,8 +1212,12 @@ end
 
 function UI.AcceptsWeapon(itemId, gearSlot, classToken)
   classToken = classToken or UI.PlayerClassToken()
-  if armor_record(itemId) then
-    return UI.CheckEquip(itemId, gearSlot or "chest", {}, classToken) and true or false
+  local armor = armor_record(itemId)
+  if armor then
+    if gearSlot == nil or gearSlot == "" or ARMOR_SLOTS[gearSlot] then
+      return class_can_wear(classToken, armor.subClassID)
+    end
+    return true
   end
   if not weapon_record(itemId) then
     return true
