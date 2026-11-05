@@ -4,6 +4,10 @@ All notable changes to CrusaderStrike (World of Warcraft: Forever only).
 
 ## Unreleased
 
+## 0.3.4 (WoW Forever)
+
+- Release for #26 morning check: includes #45 platform#51/#52 error-envelope handling (#46). No schema change.
+
 ### Changed
 - **Consume platform#51/#52 error envelopes (#45):** `ParseErrorEnvelope` maps `unauthenticated` / `session_expired` / `upstream_unavailable` / `rate_limited` / `version_mismatch` / `internal_error` (plus legacy codes) into FailSync / gear-sets UX; stores `request_id` when present; honors `retryable` and `Retry-After`. Pending ops kept; syncing cleared. Locked to CrusaderStrike/platform#52 (`6ecf719`). Refs #26.
 
