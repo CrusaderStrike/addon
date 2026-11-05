@@ -22,8 +22,10 @@ not append a seventh ModeTabs entry** and does not use
 Instead:
 
 - A CS-owned toggle (`CrusaderStrikeGearTabToggle`) is parented to
-  `CharacterFrame` **outside** `ModeTabs.Tabs`. It uses the Crusader Strike
-  logo (`assets/logo.tga`).
+  `CharacterFrame` **outside** `ModeTabs.Tabs`, anchored
+  `TOPLEFT` → `ModeTabs` `BOTTOMLEFT` (4px gap) so it sits **below** the
+  vertical side strip with the other character tabs — not above them at the
+  top. It uses the Crusader Strike logo (`assets/logo.tga`).
 - `/cs geartab` (or that toggle) opens `CrusaderStrikeCharacterGearFrame` only
   when `CharacterFrame` is **already** shown by a real user open. CS never
   calls `ShowUIPanel`, `CharacterFrame:Show`, `ShowSubFrame`,

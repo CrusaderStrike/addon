@@ -982,11 +982,13 @@ local function ensure_toggle(cf)
   -- CharacterFrameModeSideTabTemplate.
   csToggle = CreateFrame("Button", "CrusaderStrikeGearTabToggle", cf)
   csToggle:SetSize(ICON_SIZE, ICON_SIZE)
+  -- Forever ModeTabs is a vertical side strip; last tab is at the bottom.
+  -- Anchor BELOW ModeTabs so CS sits with the other character tabs (not above them at the top).
   local modeTabs = cf.ModeTabs
   if modeTabs and csToggle.SetPoint then
-    csToggle:SetPoint("BOTTOMLEFT", modeTabs, "TOPLEFT", 0, 4)
+    csToggle:SetPoint("TOPLEFT", modeTabs, "BOTTOMLEFT", 0, -4)
   elseif csToggle.SetPoint then
-    csToggle:SetPoint("TOPRIGHT", cf, "TOPRIGHT", -8, -40)
+    csToggle:SetPoint("BOTTOMLEFT", cf, "BOTTOMLEFT", 8, 8)
   end
   if csToggle.SetFrameLevel then
     csToggle:SetFrameLevel(50)
