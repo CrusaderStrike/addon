@@ -61,7 +61,7 @@ local SLOT_SIZE = 37
 local ICON_SIZE = 42
 local RESULT_ICON = 36
 local RESULT_GAP = 4
-local RESULT_COLS = 4
+local RESULT_COLS = 3
 local DUNGEON_LIST_ROWS = 40
 local SET_LIST_ROWS = 24
 local GEAR_SETS_ICON = "Interface\\Icons\\INV_Misc_Gear_01"
@@ -1139,24 +1139,26 @@ local function ensure_ui()
   apply_backdrop(browserPanel)
   browserPanel:Hide()
 
-  add_text(browserPanel, "GameFontNormal", "Dungeons", 8, -8)
+  local dungeonTitle = add_text(browserPanel, "GameFontNormal", "Dungeons", 8, -8)
 
+  -- Stretch with the pane (fixed 220px width overflowed the right host and looked crooked).
   local listFrame = CreateFrame("Frame", "CrusaderStrikeGearDungeonList", browserPanel, "BackdropTemplate")
   listFrame:SetPoint("TOPLEFT", browserPanel, "TOPLEFT", 8, -24)
-  listFrame:SetSize(220, 110)
+  listFrame:SetPoint("TOPRIGHT", browserPanel, "TOPRIGHT", -8, -24)
+  listFrame:SetHeight(96)
   apply_backdrop(listFrame)
 
   local listScroll = CreateFrame("ScrollFrame", "CrusaderStrikeGearDungeonScroll", listFrame, "UIPanelScrollFrameTemplate")
   listScroll:SetPoint("TOPLEFT", listFrame, "TOPLEFT", 4, -4)
   listScroll:SetPoint("BOTTOMRIGHT", listFrame, "BOTTOMRIGHT", -22, 4)
   dungeonListChild = CreateFrame("Frame", "CrusaderStrikeGearDungeonListChild", listScroll)
-  dungeonListChild:SetSize(190, 18 * DUNGEON_LIST_ROWS)
+  dungeonListChild:SetSize(160, 18 * DUNGEON_LIST_ROWS)
   if listScroll.SetScrollChild then
     listScroll:SetScrollChild(dungeonListChild)
   end
   for i = 1, DUNGEON_LIST_ROWS do
     local row = CreateFrame("Button", nil, dungeonListChild)
-    row:SetSize(188, 16)
+    row:SetSize(150, 16)
     row:SetPoint("TOPLEFT", dungeonListChild, "TOPLEFT", 0, -((i - 1) * 18))
     row:Hide()
     row._isListRow = true
@@ -1177,10 +1179,15 @@ local function ensure_ui()
     dungeonListRows[i] = row
   end
 
-  add_text(browserPanel, "GameFontHighlightSmall", "Name or item ID", 8, -140)
+  -- Search sits on its own row under the dungeon list (was overlapping the label at absolute y).
+  local searchLabel = add_text(browserPanel, "GameFontHighlightSmall", "Name or item ID", 8, -128)
+  searchLabel:ClearAllPoints()
+  searchLabel:SetPoint("TOPLEFT", listFrame, "BOTTOMLEFT", 0, -8)
+
   searchBox = CreateFrame("EditBox", "CrusaderStrikeGearSearch", browserPanel, "InputBoxTemplate")
-  searchBox:SetSize(100, 20)
-  searchBox:SetPoint("TOPLEFT", browserPanel, "TOPLEFT", 120, -136)
+  searchBox:SetHeight(20)
+  searchBox:SetPoint("TOPLEFT", searchLabel, "BOTTOMLEFT", 2, -4)
+  searchBox:SetPoint("TOPRIGHT", listFrame, "BOTTOMRIGHT", 0, -22)
   searchBox:SetAutoFocus(false)
   if searchBox.SetMaxLetters then
     searchBox:SetMaxLetters(64)
@@ -1202,15 +1209,22 @@ local function ensure_ui()
     8,
     -162
   )
+  browserEmpty:ClearAllPoints()
+  browserEmpty:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", -2, -6)
+  browserEmpty:SetPoint("TOPRIGHT", searchBox, "BOTTOMRIGHT", 0, -6)
   if browserEmpty.SetWidth then
-    browserEmpty:SetWidth(220)
+    -- width follows anchors when available; keep a fallback for mocks
+    browserEmpty:SetWidth(200)
   end
+
   browserMore = add_text(browserPanel, "GameFontDisableSmall", "", 8, -180)
+  browserMore:ClearAllPoints()
+  browserMore:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", -2, -6)
   browserMore:Hide()
 
   -- Scrollable result grid — every matching item is reachable (no hard 8-cap).
   resultScroll = CreateFrame("ScrollFrame", "CrusaderStrikeGearResultScroll", browserPanel, "UIPanelScrollFrameTemplate")
-  resultScroll:SetPoint("TOPLEFT", browserPanel, "TOPLEFT", 8, -196)
+  resultScroll:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", -2, -24)
   resultScroll:SetPoint("BOTTOMRIGHT", browserPanel, "BOTTOMRIGHT", -28, 8)
   resultChild = CreateFrame("Frame", "CrusaderStrikeGearResultChild", resultScroll)
   resultChild:SetSize(RESULT_COLS * (RESULT_ICON + RESULT_GAP), RESULT_ICON + RESULT_GAP)

@@ -53,9 +53,10 @@ Instead:
 - The dungeon control is a **scrollable list** of dungeon names (All + every
   indexed dungeon) — not a cycling button or a menu of `UIPanelButtonTemplate`
   options. Name / item-ID search stays.
-- Browser results live in a **scrollable icon grid**
-  (`CrusaderStrikeGearResultScroll`). There is no hard 8-row cap; every
-  matching Forever-overlay item is reachable.
+- Browser layout chains off the dungeon list (stretch width, no fixed
+  220px box): search under the list, then a **scrollable 3-column icon
+  grid** (`CrusaderStrikeGearResultScroll`). There is no hard 8-row cap;
+  every matching Forever-overlay item is reachable.
 - Stats pane shows classic stat name placeholders and a filled-slot count.
   Totals are not computed yet.
 
