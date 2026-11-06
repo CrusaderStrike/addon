@@ -935,7 +935,7 @@ function refresh_browser()
       btn._csEquipReason = row.equipReason
       btn._csUnequippable = row.equipState == "no"
       if row.equipState == "no" and reject_status then
-        btn._csEquipLine = reject_status(row.equipReason, UI.PlayerClassToken())
+        btn._csEquipLine = reject_status(row.equipReason, UI.PlayerClassToken(), state.gearSlot)
       else
         btn._csEquipLine = nil
       end
@@ -1074,8 +1074,8 @@ local RANGED = {
   WARLOCK = weapon_set({ SUB.WAND }),
 }
 
--- Off-hand weapons (INVTYPE_WEAPONOFFHAND) only: rogue, warrior, hunter.
--- Shamans do not. Generic INVTYPE_WEAPON is never an off-hand item.
+-- Generic one-hand (INVTYPE_WEAPON) in the off hand: warrior, rogue, hunter.
+-- INVTYPE_WEAPONOFFHAND and INVTYPE_HOLDABLE fit every class.
 local DUAL_WIELD = { WARRIOR = true, ROGUE = true, HUNTER = true }
 local SHIELD_CLASS = { WARRIOR = true, PALADIN = true, SHAMAN = true }
 local MAINHAND_ONLY_LOC = { INVTYPE_WEAPONMAINHAND = true, INVTYPE_2HWEAPON = true }
@@ -1373,15 +1373,17 @@ local function item_equip_loc(itemId)
 end
 
 -- Where an equip location is allowed to land.
--- Off hand is fail-closed: missing loc, main-hand, two-hand, and generic
--- one-hand (INVTYPE_WEAPON) never fit. Off-hand weapons only for
--- rogue/warrior/hunter. Shields only for warrior/paladin/shaman.
+-- Off hand fails closed when the inventory type is missing.
+-- INVTYPE_WEAPONOFFHAND and INVTYPE_HOLDABLE fit every class.
+-- INVTYPE_SHIELD is warrior, paladin, and shaman.
+-- Generic INVTYPE_WEAPON is warrior, rogue, and hunter.
+-- INVTYPE_WEAPONMAINHAND and INVTYPE_2HWEAPON never fit the off hand.
 local function loc_fits_slot(equipLoc, slot, classToken)
   if slot == "off_hand" then
     if type(equipLoc) ~= "string" or equipLoc == "" then
       return false, "wrong_slot"
     end
-    if equipLoc == "INVTYPE_HOLDABLE" then
+    if equipLoc == "INVTYPE_HOLDABLE" or equipLoc == "INVTYPE_WEAPONOFFHAND" then
       return true
     end
     if equipLoc == "INVTYPE_SHIELD" then
@@ -1390,7 +1392,7 @@ local function loc_fits_slot(equipLoc, slot, classToken)
       end
       return false, "wrong_slot"
     end
-    if equipLoc == "INVTYPE_WEAPONOFFHAND" then
+    if equipLoc == "INVTYPE_WEAPON" then
       if DUAL_WIELD[classToken] then
         return true
       end
@@ -1492,10 +1494,14 @@ local function class_slot_ok(classToken, slot, rec)
     return false, "class_weapon"
   end
   if slot == "off_hand" then
-    if is_two_hand(rec) or is_mainhand_only(rec) or not OFFHAND_SUB[rec.subClassID] then
-      if is_two_hand(rec) or is_mainhand_only(rec) then
-        return false, "dual_mainhand"
-      end
+    if is_two_hand(rec) or is_mainhand_only(rec) then
+      return false, "dual_mainhand"
+    end
+    -- A marked off-hand weapon is not a dual-wield check.
+    if rec.equipLoc == "INVTYPE_WEAPONOFFHAND" then
+      return true
+    end
+    if not OFFHAND_SUB[rec.subClassID] then
       return false, "class_weapon"
     end
     if not DUAL_WIELD[classToken] then
@@ -1562,7 +1568,10 @@ function UI.CheckEquip(itemId, slot, previewSlots, classToken)
     if mainRec and (is_two_hand(mainRec) or is_mainhand_only(mainRec)) then
       return false, "dual_mainhand"
     end
-    if classToken and MELEE[classToken] and not DUAL_WIELD[classToken] then
+    -- Generic one-hand dual-wield is warrior/rogue/hunter. A marked
+    -- off-hand weapon can sit beside a main-hand weapon for every class.
+    if rec.equipLoc ~= "INVTYPE_WEAPONOFFHAND"
+        and classToken and MELEE[classToken] and not DUAL_WIELD[classToken] then
       return false, "dual_mainhand"
     end
   elseif slot == "main_hand" then
@@ -1570,7 +1579,8 @@ function UI.CheckEquip(itemId, slot, previewSlots, classToken)
     if offRec and (is_two_hand(rec) or is_mainhand_only(rec) or is_mainhand_only(offRec) or is_two_hand(offRec)) then
       return false, "dual_mainhand"
     end
-    if classToken and MELEE[classToken] and not DUAL_WIELD[classToken] and offRec then
+    if offRec and offRec.equipLoc ~= "INVTYPE_WEAPONOFFHAND"
+        and classToken and MELEE[classToken] and not DUAL_WIELD[classToken] then
       return false, "dual_mainhand"
     end
   end
@@ -1620,8 +1630,11 @@ function UI.AcceptsWeapon(itemId, gearSlot, classToken)
   return false
 end
 
-reject_status = function(reason, classToken)
+reject_status = function(reason, classToken, slot)
   if reason == "wrong_slot" then
+    if slot == "off_hand" then
+      return "That item does not go in the off hand."
+    end
     return "That item does not go in that slot."
   end
   if reason == "dual_mainhand" then
@@ -1668,7 +1681,7 @@ function UI.EquipItem(itemId)
   local classToken = UI.PlayerClassToken()
   local allowed, reason = UI.CheckEquip(itemId, slot, state.previewSlots, classToken)
   if not allowed then
-    set_status(reject_status(reason, classToken))
+    set_status(reject_status(reason, classToken, slot))
     return false, reason
   end
   state.activeSlot = slot

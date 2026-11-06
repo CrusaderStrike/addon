@@ -12,8 +12,10 @@ E.CLASS_ARMOR_MAX = {
   WARRIOR = 4, PALADIN = 4,
 }
 
--- Off-hand weapons (INVTYPE_WEAPONOFFHAND) only. Not generic one-handers.
-E.OFFHAND_WEAPON_CLASS = { ROGUE = true, WARRIOR = true, HUNTER = true }
+-- Generic one-hand (INVTYPE_WEAPON) in the off hand. INVTYPE_WEAPONOFFHAND
+-- and INVTYPE_HOLDABLE are allowed for every class.
+E.OFFHAND_GENERIC_CLASS = { ROGUE = true, WARRIOR = true, HUNTER = true }
+E.OFFHAND_WEAPON_CLASS = E.OFFHAND_GENERIC_CLASS
 
 -- Shields. Hunter is not a shield class.
 E.SHIELD_CLASS = { WARRIOR = true, PALADIN = true, SHAMAN = true }
@@ -42,7 +44,7 @@ function E.NormalizeClass(value)
     return nil
   end
   local upper = value:upper()
-  if E.CLASS_ARMOR_MAX[upper] or E.OFFHAND_WEAPON_CLASS[upper] or E.SHIELD_CLASS[upper] then
+  if E.CLASS_ARMOR_MAX[upper] or E.OFFHAND_GENERIC_CLASS[upper] or E.SHIELD_CLASS[upper] then
     return upper
   end
   return CLASS_ALIAS[value:lower()]
@@ -241,7 +243,8 @@ function E.CanPlace(itemId, slot, classToken, previewSlots)
   if loc == nil then
     return false, "wrong_slot"
   end
-  if loc == "INVTYPE_HOLDABLE" then
+  -- Off-hand weapons and holdables: every class. No class check.
+  if loc == "INVTYPE_HOLDABLE" or loc == "INVTYPE_WEAPONOFFHAND" then
     return true
   end
   if loc == "INVTYPE_SHIELD" then
@@ -250,13 +253,14 @@ function E.CanPlace(itemId, slot, classToken, previewSlots)
     end
     return false, "wrong_slot"
   end
-  if loc == "INVTYPE_WEAPONOFFHAND" then
-    if classToken and E.OFFHAND_WEAPON_CLASS[classToken] then
+  -- Generic one-hand only for warrior, rogue, and hunter.
+  if loc == "INVTYPE_WEAPON" then
+    if classToken and E.OFFHAND_GENERIC_CLASS[classToken] then
       return true
     end
     return false, "wrong_slot"
   end
-  -- Main-hand, two-hand, generic one-hand, and anything else stay out.
+  -- Main-hand, two-hand, and any unknown inventory type stay out.
   return false, "wrong_slot"
 end
 

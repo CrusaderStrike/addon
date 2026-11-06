@@ -688,11 +688,9 @@ describe("character gear tab scaffold", function()
     UI.OnGearSlot("main_hand", "LeftButton")
     ok(UI.EquipItem(900001))
     UI.OnGearSlot("off_hand", "LeftButton")
-    local okGeneric, whyGeneric = UI.EquipItem(900001)
-    eq(okGeneric, false)
-    eq(whyGeneric, "wrong_slot")
+    ok(UI.EquipItem(900001))
     eq(UI.GetPreview().slots.main_hand, 900001)
-    eq(UI.GetPreview().slots.off_hand, nil)
+    eq(UI.GetPreview().slots.off_hand, 900001)
 
     slots = UI.GetPreview().slots
     for slot in pairs(slots) do
@@ -703,7 +701,7 @@ describe("character gear tab scaffold", function()
     UI.OnGearSlot("off_hand", "LeftButton")
     local okTwo, whyTwo = UI.EquipItem(900006)
     eq(okTwo, false)
-    eq(whyTwo, "wrong_slot")
+    eq(whyTwo, "dual_mainhand")
 
     eq(UI.AcceptsWeapon(900002, "ranged", "DRUID"), false)
     eq(UI.AcceptsWeapon(900002, nil, "DRUID"), false)
@@ -852,16 +850,15 @@ describe("character gear tab scaffold", function()
     eq(UI.GetPreview().slots.off_hand, nil)
     ok(try_slot("WARRIOR", "main_hand", 920001))
     eq(UI.GetPreview().slots.main_hand, 920001)
-    eq(select(1, try_slot("WARRIOR", "off_hand", 920003)), false)
-    eq(UI.GetPreview().slots.off_hand, nil)
+    ok(try_slot("WARRIOR", "off_hand", 920003))
+    eq(UI.GetPreview().slots.off_hand, 920003)
     local okOne, whyOne = try_slot("DRUID", "off_hand", 920003)
     eq(okOne, false)
     eq(whyOne, "wrong_slot")
     eq(UI.GetPreview().slots.off_hand, nil)
-    local okHunter, whyHunter = try_slot("HUNTER", "off_hand", 920003)
-    eq(okHunter, false)
-    eq(whyHunter, "wrong_slot")
-    eq(select(1, try_slot("ROGUE", "off_hand", 920003)), false)
+    ok(try_slot("HUNTER", "off_hand", 920003))
+    eq(UI.GetPreview().slots.off_hand, 920003)
+    ok(try_slot("ROGUE", "off_hand", 920003))
     eq(select(1, try_slot("WARRIOR", "main_hand", 920004)), false)
     ok(try_slot("WARRIOR", "off_hand", 920004))
     eq(select(1, try_slot("WARRIOR", "main_hand", 920005)), false)
@@ -874,16 +871,16 @@ describe("character gear tab scaffold", function()
     eq(select(1, try_slot("MAGE", "main_hand", 920008)), false)
     ok(try_slot("MAGE", "ranged", 920008))
     eq(UI.AcceptsWeapon(920001, "off_hand", "WARRIOR"), false)
-    eq(UI.AcceptsWeapon(920003, "off_hand", "WARRIOR"), false)
-    eq(UI.AcceptsWeapon(920003, "off_hand", "HUNTER"), false)
-    eq(UI.AcceptsWeapon(920003, "off_hand", "ROGUE"), false)
+    eq(UI.AcceptsWeapon(920003, "off_hand", "WARRIOR"), true)
+    eq(UI.AcceptsWeapon(920003, "off_hand", "HUNTER"), true)
+    eq(UI.AcceptsWeapon(920003, "off_hand", "ROGUE"), true)
     eq(select(1, try_slot("DRUID", "off_hand", 920003)), false)
-    eq(select(1, try_slot("DRUID", "off_hand", 920004)), false)
+    ok(try_slot("DRUID", "off_hand", 920004))
     eq(select(1, try_slot("DRUID", "off_hand", 920005)), false)
     eq(UI.AcceptsWeapon(920001, "off_hand", "DRUID"), false)
     eq(UI.AcceptsWeapon(920002, "off_hand", "DRUID"), false)
     eq(UI.AcceptsWeapon(920003, "off_hand", "DRUID"), false)
-    eq(UI.AcceptsWeapon(920004, "off_hand", "DRUID"), false)
+    eq(UI.AcceptsWeapon(920004, "off_hand", "DRUID"), true)
     eq(UI.AcceptsWeapon(920005, "off_hand", "DRUID"), false)
     eq(UI.AcceptsWeapon(920006, "off_hand", "DRUID"), true)
     ok(try_slot("DRUID", "off_hand", 920006))
@@ -1284,7 +1281,13 @@ describe("character gear tab scaffold", function()
       return itemId, row[1], row[2], row[3], "Interface\\Icons\\INV_CS_Item_" .. tostring(itemId), row[4], row[5]
     end
     local classes = { "WARRIOR", "ROGUE", "HUNTER", "DRUID", "SHAMAN", "PALADIN", "MAGE", "PRIEST", "WARLOCK" }
-    local offhandWeapon = { WARRIOR = true, ROGUE = true, HUNTER = true }
+    -- 930101 is a dagger marked off-hand. Every class may use that inventory
+    -- type; paladin still fails because paladins cannot use daggers.
+    local offhandWeapon = {
+      WARRIOR = true, ROGUE = true, HUNTER = true, DRUID = true,
+      SHAMAN = true, MAGE = true, PRIEST = true, WARLOCK = true,
+    }
+    local genericOffhand = { WARRIOR = true, ROGUE = true, HUNTER = true }
     local shieldClass = { WARRIOR = true, PALADIN = true, SHAMAN = true }
     local armorMax = {
       MAGE = 1, PRIEST = 1, WARLOCK = 1,
@@ -1294,9 +1297,17 @@ describe("character gear tab scaffold", function()
     }
     local armorItem = { [1] = 930111, [2] = 930112, [3] = 930113, [4] = 930114 }
     for _, classToken in ipairs(classes) do
+      eq(select(1, CrusaderStrikeGearEquip.CanPlace(930101, "off_hand", classToken, {})), true)
+      eq(select(1, CrusaderStrikeGearEquip.CanPlace(930106, "off_hand", classToken, {})), true)
+      eq(select(1, CrusaderStrikeGearEquip.CanPlace(930103, "off_hand", classToken, {})), genericOffhand[classToken] == true)
+      eq(select(1, CrusaderStrikeGearEquip.CanPlace(930105, "off_hand", classToken, {})), shieldClass[classToken] == true)
+      eq(select(1, CrusaderStrikeGearEquip.CanPlace(930102, "off_hand", classToken, {})), false)
+      eq(select(1, CrusaderStrikeGearEquip.CanPlace(930104, "off_hand", classToken, {})), false)
+      eq(select(1, CrusaderStrikeGearEquip.CanPlace(930199, "off_hand", classToken, {})), false)
+      eq(select(1, CrusaderStrikeGearEquip.CanPlace(930102, "main_hand", classToken, {})), true)
       eq(select(1, UI.CheckEquip(930101, "off_hand", {}, classToken)), offhandWeapon[classToken] == true)
       eq(select(1, UI.CheckEquip(930102, "off_hand", {}, classToken)), false)
-      eq(select(1, UI.CheckEquip(930103, "off_hand", {}, classToken)), false)
+      eq(select(1, UI.CheckEquip(930103, "off_hand", {}, classToken)), genericOffhand[classToken] == true)
       eq(select(1, UI.CheckEquip(930104, "off_hand", {}, classToken)), false)
       eq(select(1, UI.CheckEquip(930105, "off_hand", {}, classToken)), shieldClass[classToken] == true)
       eq(select(1, UI.CheckEquip(930106, "off_hand", {}, classToken)), true)
@@ -1316,7 +1327,7 @@ describe("character gear tab scaffold", function()
     eq(select(1, UI.EquipItem(930113)), false)
     eq(select(1, UI.EquipItem(930114)), false)
     UI.OnGearSlot("off_hand", "LeftButton")
-    eq(select(1, UI.EquipItem(930101)), false)
+    ok(select(1, UI.EquipItem(930101)))
     eq(select(1, UI.EquipItem(930103)), false)
     ok(select(1, UI.EquipItem(930106)))
 
@@ -1337,9 +1348,9 @@ describe("character gear tab scaffold", function()
     local savedLeather = CrusaderStrikeGearSets.SetSlot(db, list.local_id, "hands", 930112)
     ok(savedLeather ~= nil)
     eq(list.slots.hands, 930112)
-    local savedOH, ohErr = CrusaderStrikeGearSets.SetSlot(db, list.local_id, "off_hand", 930101)
-    eq(savedOH, nil)
-    eq(ohErr, "wrong_slot")
+    local savedOH = CrusaderStrikeGearSets.SetSlot(db, list.local_id, "off_hand", 930101)
+    ok(savedOH ~= nil)
+    eq(list.slots.off_hand, 930101)
 
     ok(CrusaderStrikeGearSets.ApplyImport(db, {
       lists = {
@@ -1377,7 +1388,8 @@ describe("character gear tab scaffold", function()
     ok(hunterOH ~= nil)
     eq(hunterSet.slots.off_hand, 930101)
     local hunterGeneric = CrusaderStrikeGearSets.SetSlot(db, hunterSet.local_id, "off_hand", 930103)
-    eq(hunterGeneric, nil)
+    ok(hunterGeneric ~= nil)
+    eq(hunterSet.slots.off_hand, 930103)
 
     _G.UnitClass = prevClass
     _G.GetItemInfoInstant = prevInfo
