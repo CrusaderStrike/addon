@@ -1668,4 +1668,103 @@ describe("character gear tab scaffold", function()
     _G.GetItemInfo = prevGet
     _G.CharacterFrame = prevChar
   end)
+
+  it("deletes a saved gear set after confirm and leaves No as a no-op", function()
+    local UI = CrusaderStrike.CharacterGearTab
+    local prevChar = _G.CharacterFrame
+    local prevDb = _G.CrusaderStrikeCharDB
+    _G.CrusaderStrikeCharDB = {}
+    _G.CharacterFrame = {
+      ModeTabs = { Tabs = {} },
+      shown = true,
+      IsShown = function(self) return self.shown end,
+    }
+    UI.Show()
+    UI.TogglePane("sets")
+    local G = CrusaderStrikeGearSets
+    local function make(name)
+      UI.DeselectSlot()
+      UI.OnGearSlot("head", "LeftButton")
+      ok(UI.EquipItem(12345))
+      _G.CrusaderStrikeGearSetName:SetText(name)
+      _G.CrusaderStrikeGearSaveSet:GetScript("OnClick")()
+    end
+    make("Alpha")
+    local row = _G.CrusaderStrikeGearSetRow1
+    local del = _G.CrusaderStrikeGearSetRow1Delete
+    ok(row:IsShown())
+    ok(del:IsShown())
+    eq(del:GetParent(), row)
+    local point, rel, relPoint, x, y = del:GetPoint(1)
+    eq(point, "RIGHT")
+    eq(rel, row)
+    eq(relPoint, "RIGHT")
+    eq(x, -2)
+    eq(y, 0)
+    eq(del._csTint[1], 1)
+    eq(del._csTint[2], 0.1)
+    eq(del._csLabel:GetText(), "X")
+    eq(del._csLabel._color[1], 1)
+    eq(del._csLabel._color[2], 0.1)
+
+    del:GetScript("OnClick")(del)
+    local popup = _G.StaticPopup_displayed
+    eq(popup.which, "CRUSADERSTRIKE_DELETE_GEAR_SET")
+    eq(popup.dialog.text, 'Delete gear set "%s"?')
+    eq(popup.dialog.button1, "Yes")
+    eq(popup.dialog.button2, "No")
+    eq(popup.text_arg1, "Alpha")
+    popup.dialog.OnCancel()
+    ok(G.FindByName(_G.CrusaderStrikeCharDB, "Alpha") ~= nil)
+    ok(row:IsShown())
+    eq(G.Delete(_G.CrusaderStrikeCharDB, "no such set"), nil)
+    ok(G.FindByName(_G.CrusaderStrikeCharDB, "Alpha") ~= nil)
+
+    row:GetScript("OnClick")(row)
+    eq(UI.GetPreview().localId, row._localId)
+    eq(UI.GetPreview().slots.head, 12345)
+    del:GetScript("OnClick")(del)
+    popup = _G.StaticPopup_displayed
+    popup.dialog.OnAccept(nil, popup.data)
+    eq(G.FindByName(_G.CrusaderStrikeCharDB, "Alpha"), nil)
+    eq(UI.GetPreview().localId, nil)
+    eq(UI.GetPreview().slots.head, nil)
+    eq(row:IsShown(), false)
+    eq(del:IsShown(), false)
+    ok(_G.CrusaderStrikeGearSetsPanel._csEmpty:IsShown())
+    eq(_G.CrusaderStrikeGearSetsPanel._csMore:IsShown(), false)
+
+    make("Beta")
+    ok(G.FindByName(_G.CrusaderStrikeCharDB, "Beta") ~= nil)
+    ok(row:IsShown())
+    row:GetScript("OnClick")(row)
+    del:GetScript("OnClick")(del)
+    popup = _G.StaticPopup_displayed
+    popup.dialog.OnAccept(nil, popup.data)
+    eq(UI.GetPreview().localId, nil)
+    UI.OnGearSlot("wrist", "LeftButton")
+    ok(select(1, UI.EquipItem(14148)))
+    eq(UI.GetPreview().slots.wrist, 14148)
+
+    _G.CrusaderStrikeCharDB.gearSets = nil
+    for i = 1, 9 do
+      ok(G.CreateSet(_G.CrusaderStrikeCharDB, { name = "Set " .. i, type = "max_level" }, 60) ~= nil)
+    end
+    ok(_G.CrusaderStrikeGearSetsPanel._csMore:IsShown())
+    eq(G.CountActive(_G.CrusaderStrikeCharDB), 9)
+    local kept = UI.GetPreview().slots.wrist
+    ok(G.Delete(_G.CrusaderStrikeCharDB, "Set 9"))
+    eq(G.CountActive(_G.CrusaderStrikeCharDB), 8)
+    eq(G.FindByName(_G.CrusaderStrikeCharDB, "Set 9"), nil)
+    eq(_G.CrusaderStrikeGearSetsPanel._csMore:IsShown(), false)
+    eq(UI.GetPreview().slots.wrist, kept)
+    SlashCmdList["CRUSADERSTRIKE"]("gearsets delete Set 1")
+    eq(G.FindByName(_G.CrusaderStrikeCharDB, "Set 1"), nil)
+    eq(G.CountActive(_G.CrusaderStrikeCharDB), 7)
+    SlashCmdList["CRUSADERSTRIKE"]("gearsets delete Set 1")
+    eq(G.CountActive(_G.CrusaderStrikeCharDB), 7)
+
+    _G.CharacterFrame = prevChar
+    _G.CrusaderStrikeCharDB = prevDb
+  end)
 end)

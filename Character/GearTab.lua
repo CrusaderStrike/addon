@@ -579,10 +579,18 @@ refresh_gear_list = function()
         btn._localId = list.local_id
         local mark = (list.local_id == state.localId) and "• " or ""
         btn:SetText(mark .. (list.name or "gear set"))
+        if btn._csDelete then
+          btn._csDelete._localId = list.local_id
+          btn._csDelete:Show()
+        end
         shown = shown + 1
       else
         btn:Hide()
         btn._localId = nil
+        if btn._csDelete then
+          btn._csDelete._localId = nil
+          btn._csDelete:Hide()
+        end
       end
     end
   end
@@ -625,9 +633,19 @@ local function install_set_list_hooks()
     return list, err
   end
   function G.DeleteSet(charDB, local_id)
+    local wasActive = state.localId == local_id
     local okDel, err = delete(charDB, local_id)
-    if okDel and state.localId == local_id then
+    -- Dropping the loaded set clears the planner. Leaving its items selected
+    -- would make the next Create rewrite that set, and later equips would
+    -- have no list to save into.
+    if okDel and wasActive then
       state.localId = nil
+      state.previewSlots = {}
+      state.activeSlot = nil
+      state.gearSlot = nil
+      if refresh_stats then
+        refresh_stats()
+      end
     end
     if refresh_gear_list then
       refresh_gear_list()
@@ -1643,6 +1661,70 @@ function UI.UnequipSlot(slotName)
   return true
 end
 
+local DELETE_POPUP = "CRUSADERSTRIKE_DELETE_GEAR_SET"
+
+function UI.CommitDeleteSet(localId)
+  local db = char_db()
+  if not db or not CrusaderStrikeGearSets or not CrusaderStrikeGearSets.DeleteSet then
+    return false
+  end
+  if type(localId) ~= "string" or localId == "" then
+    return false
+  end
+  local wasActive = state.localId == localId
+  local okDel = CrusaderStrikeGearSets.DeleteSet(db, localId)
+  if not okDel then
+    return false
+  end
+  if wasActive then
+    set_status("Deleted the active gear set. Planner slots were cleared.")
+  else
+    set_status("Deleted gear set.")
+  end
+  return true
+end
+
+local function ensure_delete_popup()
+  if type(StaticPopupDialogs) ~= "table" then
+    return false
+  end
+  if not StaticPopupDialogs[DELETE_POPUP] then
+    StaticPopupDialogs[DELETE_POPUP] = {
+      text = 'Delete gear set "%s"?',
+      button1 = "Yes",
+      button2 = "No",
+      OnAccept = function(self, data)
+        if data == nil and type(self) == "table" then
+          data = self.data
+        end
+        UI.CommitDeleteSet(data)
+      end,
+      OnCancel = function() end,
+      timeout = 0,
+      whileDead = true,
+      hideOnEscape = true,
+      preferredIndex = 3,
+    }
+  end
+  return type(StaticPopup_Show) == "function"
+end
+
+function UI.PromptDeleteSet(localId)
+  local db = char_db()
+  if not db or not CrusaderStrikeGearSets or not CrusaderStrikeGearSets.FindByLocalId then
+    return false
+  end
+  local list = CrusaderStrikeGearSets.FindByLocalId(db, localId)
+  if not list then
+    return false
+  end
+  if not ensure_delete_popup() then
+    return false
+  end
+  StaticPopup_Show(DELETE_POPUP, list.name or "gear set", nil, list.local_id)
+  return true
+end
+
 function UI.SavePreviewAsSet(name)
   local db = char_db()
   if not db or not CrusaderStrikeGearSets or not CrusaderStrikeGearSets.CreateSet then
@@ -2442,16 +2524,25 @@ local function ensure_ui()
     8,
     -28
   )
+  setsPanel._csEmpty = setsEmpty
   if setsEmpty.SetWidth then
     setsEmpty:SetWidth(UI.POPOUT_INNER)
   end
 
-  local VISIBLE_SET_ROWS = 8
+  local setSpec = (Layout and Layout.setList) or {}
+  local VISIBLE_SET_ROWS = setSpec.visible or 8
+  local rowStep = setSpec.step or 24
+  local rowTop = setSpec.firstY or -36
+  local rowLeft = setSpec.left or 12
+  local rowRight = setSpec.right or -8
+  local delSpec = setSpec.delete or {}
+  local delColor = delSpec.color or { 1, 0.1, 0.1 }
   for i = 1, VISIBLE_SET_ROWS do
+    local y = rowTop - ((i - 1) * rowStep)
     local btn = CreateFrame("Button", "CrusaderStrikeGearSetRow" .. i, setsPanel, "UIPanelButtonTemplate")
-    btn:SetHeight(22)
-    btn:SetPoint("TOPLEFT", setsPanel, "TOPLEFT", 12, -36 - ((i - 1) * 24))
-    btn:SetPoint("TOPRIGHT", setsPanel, "TOPRIGHT", -12, -36 - ((i - 1) * 24))
+    btn:SetHeight(setSpec.rowHeight or 22)
+    btn:SetPoint("TOPLEFT", setsPanel, "TOPLEFT", rowLeft, y)
+    btn:SetPoint("TOPRIGHT", setsPanel, "TOPRIGHT", rowRight, y)
     btn:Hide()
     btn:SetScript("OnClick", function(self)
       local localId = self._localId
@@ -2459,10 +2550,44 @@ local function ensure_ui()
         UI.SelectSet(localId)
       end
     end)
+    local del = CreateFrame("Button", "CrusaderStrikeGearSetRow" .. i .. "Delete", btn)
+    del:SetSize(delSpec.size or 16, delSpec.size or 16)
+    del:SetPoint(delSpec.point or "RIGHT", btn, delSpec.relPoint or "RIGHT", delSpec.x or -2, delSpec.y or 0)
+    if del.SetFrameLevel and btn.GetFrameLevel then
+      del:SetFrameLevel((btn:GetFrameLevel() or 0) + 2)
+    end
+    del._csTint = { delColor[1] or 1, delColor[2] or 0.1, delColor[3] or 0.1 }
+    if del.SetText then
+      del:SetText(delSpec.label or "X")
+    end
+    if del.SetTextColor then
+      del:SetTextColor(del._csTint[1], del._csTint[2], del._csTint[3])
+    end
+    if del.CreateFontString then
+      local label = del:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+      if label.SetPoint then
+        label:SetPoint("CENTER", del, "CENTER", 0, 0)
+      end
+      if label.SetText then
+        label:SetText(delSpec.label or "X")
+      end
+      if label.SetTextColor then
+        label:SetTextColor(del._csTint[1], del._csTint[2], del._csTint[3])
+      end
+      del._csLabel = label
+    end
+    del:Hide()
+    del:SetScript("OnClick", function(self)
+      if self._localId then
+        UI.PromptDeleteSet(self._localId)
+      end
+    end)
+    btn._csDelete = del
     setButtons[i] = btn
   end
   setsPanel._csRows = setButtons
-  setsMore = add_text(setsPanel, "GameFontDisableSmall", "", 12, -36 - (VISIBLE_SET_ROWS * 24))
+  setsMore = add_text(setsPanel, "GameFontDisableSmall", "", 12, rowTop - (VISIBLE_SET_ROWS * rowStep))
+  setsPanel._csMore = setsMore
   setsMore:Hide()
 
   saveBtn = CreateFrame("Button", "CrusaderStrikeGearSaveSet", setsPanel, "UIPanelButtonTemplate")

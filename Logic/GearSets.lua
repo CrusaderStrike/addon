@@ -94,6 +94,23 @@ function G.FindByLocalId(charDB, local_id)
   return nil, nil
 end
 
+function G.FindByName(charDB, name)
+  local wanted = trim(name):lower()
+  if wanted == "" then
+    return nil, nil
+  end
+  local bucket = G.EnsureDB(charDB)
+  if not bucket then
+    return nil, nil
+  end
+  for i, list in ipairs(bucket.lists) do
+    if trim(list.name):lower() == wanted then
+      return list, i
+    end
+  end
+  return nil, nil
+end
+
 function G.FindById(charDB, id)
   if id == nil then
     return nil, nil
@@ -802,6 +819,28 @@ function G.DeleteSet(charDB, local_id)
     bucket.deleted[#bucket.deleted + 1] = { local_id = list.local_id }
   end
   return true
+end
+
+-- Remove one set by local id, server id, or name. An unknown key is a no-op.
+function G.Delete(charDB, nameOrId)
+  if type(nameOrId) ~= "string" then
+    return nil
+  end
+  local key = trim(nameOrId)
+  if key == "" then
+    return nil
+  end
+  local list = G.FindByLocalId(charDB, key)
+  if not list then
+    list = G.FindById(charDB, key)
+  end
+  if not list then
+    list = G.FindByName(charDB, key)
+  end
+  if not list then
+    return nil
+  end
+  return G.DeleteSet(charDB, list.local_id)
 end
 
 local function copy_list(src)

@@ -95,6 +95,19 @@ logo button in the strip.
 - Left-click a browser item **equips** it into the current gear set (preview
   slots + `SetSlot` when a set is selected) when the class can wear it. This
   is gear-set state, not the game's EquipItem / Equipment Manager APIs.
+- Each saved-set row (`CrusaderStrikeGearSetRow1`–`8`) has a red X on its
+  right edge (`CrusaderStrikeGearSetRowNDelete`, anchors in
+  `Character/GearLayout.lua` `setList`). The X asks
+  `Delete gear set "%s"?` through `StaticPopup`. No leaves the set in place.
+  Yes calls `CrusaderStrikeGearSets.DeleteSet`, which removes that list from
+  `CrusaderStrikeCharDB.gearSets` and records it on `deleted` for sync.
+  `CrusaderStrikeGearSets.Delete(nameOrId)` accepts a local id, server id, or
+  name; an unknown key does nothing. Deleting the set that is currently
+  loaded clears the active selection and the planner slots, so the next
+  Create does not recreate that set and later equips stay preview-only until
+  another set is selected. Deleting a different set leaves the planner alone.
+  The list, the empty-state line, and the overflow line refresh after either
+  outcome. `/cs gearsets delete <name>` uses the same delete.
 - The dungeon control is a **scrollable list** of dungeon names (All + every
   indexed dungeon) — not a cycling button or a menu of `UIPanelButtonTemplate`
   options. Name / item-ID search stays.

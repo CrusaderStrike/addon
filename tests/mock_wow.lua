@@ -41,6 +41,18 @@ _G.C_Item = {
   end,
   RequestLoadItemDataByID = function() end,
 }
+_G.StaticPopupDialogs = _G.StaticPopupDialogs or {}
+_G.StaticPopup_Show = function(which, text_arg1, text_arg2, data)
+  local dialog = _G.StaticPopupDialogs[which]
+  _G.StaticPopup_displayed = {
+    which = which,
+    text_arg1 = text_arg1,
+    text_arg2 = text_arg2,
+    data = data,
+    dialog = dialog,
+  }
+  return _G.StaticPopup_displayed
+end
 
 function _G.CreateFrame(frameType, name, parent, template)
   local f = {
@@ -152,23 +164,24 @@ function _G.CreateFrame(frameType, name, parent, template)
   function f:SetBackdrop() end
   function f:SetBackdropColor() end
   function f:CreateFontString()
-    return {
-      SetPoint = noop,
-      SetText = function(self, t) self._text = t end,
-      GetText = function(self) return self._text end,
-      SetWidth = noop,
-      SetHeight = noop,
-      SetJustifyH = noop,
-      SetJustifyV = noop,
-      SetTextColor = noop,
-      SetFontObject = noop,
-      SetWordWrap = noop,
-      SetSpacing = noop,
-      SetAlpha = noop,
-      Hide = noop,
-      Show = noop,
-      ClearAllPoints = noop,
-    }
+    local fs = { _shown = true }
+    function fs:SetPoint() end
+    function fs:SetText(t) self._text = t end
+    function fs:GetText() return self._text end
+    function fs:SetWidth() end
+    function fs:SetHeight() end
+    function fs:SetJustifyH() end
+    function fs:SetJustifyV() end
+    function fs:SetTextColor(r, g, b) self._color = { r, g, b } end
+    function fs:SetFontObject() end
+    function fs:SetWordWrap() end
+    function fs:SetSpacing() end
+    function fs:SetAlpha() end
+    function fs:Hide() self._shown = false end
+    function fs:Show() self._shown = true end
+    function fs:IsShown() return self._shown and true or false end
+    function fs:ClearAllPoints() end
+    return fs
   end
   function f:CreateTexture()
     return {

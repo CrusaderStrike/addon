@@ -145,6 +145,26 @@ L.iconRow = {
   },
 }
 
+-- Saved gear-set rows in the Gear Sets panel. The name button stops short of
+-- a delete control anchored to the row's right edge.
+L.setList = {
+  visible = 8,
+  rowHeight = 22,
+  step = 24,
+  firstY = -36,
+  left = 12,
+  right = -8,
+  delete = {
+    size = 16,
+    point = "RIGHT",
+    relPoint = "RIGHT",
+    x = -2,
+    y = 0,
+    label = "X",
+    color = { 1, 0.1, 0.1 },
+  },
+}
+
 -- Sets, Browser, and Stats sit under the icon row. Left and right insets match
 -- so each panel's horizontal center is the pop-out's center.
 L.panels = {
