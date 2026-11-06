@@ -1,13 +1,75 @@
 describe("gear slots", function()
-  it("has 19 platform names including shirt and tabard", function()
+  it("has 20 platform names including shirt, tabard, and ammo", function()
     local GS = CrusaderStrikeGearSlots
-    eq(#GS.NAMES, 19)
+    eq(#GS.NAMES, 20)
     ok(GS.IsValidName("shirt"))
     ok(GS.IsValidName("tabard"))
+    ok(GS.IsValidName("ammo"))
     ok(GS.IsValidName("main_hand"))
     ok(not GS.IsValidName("mainHand"))
     eq(GS.InvToName(16), "main_hand")
     eq(GS.NameToInv("ranged"), 18)
+    eq(GS.NameToInv("ammo"), 20)
+  end)
+
+  it("refuses to store a main-hand weapon in off_hand", function()
+    local prev = _G.GetItemInfoInstant
+    _G.GetItemInfoInstant = function(itemId)
+      itemId = tonumber(itemId)
+      if itemId == 930001 then
+        return 930001, "Weapon", "Two-Handed Swords", "INVTYPE_2HWEAPON", "x", 2, 8
+      end
+      if itemId == 930002 then
+        return 930002, "Weapon", "One-Handed Swords", "INVTYPE_WEAPONMAINHAND", "x", 2, 7
+      end
+      return prev(itemId)
+    end
+    local db = {}
+    local list = CrusaderStrikeGearSets.CreateSet(db, { name = "Hands", type = "max_level" }, 60)
+    ok(list ~= nil)
+    local saved, err = CrusaderStrikeGearSets.SetSlot(db, list.local_id, "off_hand", 930001)
+    eq(saved, nil)
+    eq(err, "wrong_slot")
+    eq(list.slots.off_hand, nil)
+    local imported = CrusaderStrikeGearSets.ApplyImport(db, {
+      lists = {
+        {
+          local_id = list.local_id,
+          name = "Hands",
+          type = "max_level",
+          edited_at = "2099-01-01T00:00:00Z",
+          edited_in = "web",
+          slots = { off_hand = 930001, head = 14148 },
+          removes = {},
+        },
+      },
+    })
+    ok(imported)
+    local again = CrusaderStrikeGearSets.FindByLocalId(db, list.local_id)
+    eq(again.slots.off_hand, nil)
+    eq(again.slots.head, 14148)
+    local mainSaved, mainErr = CrusaderStrikeGearSets.SetSlot(db, list.local_id, "off_hand", 930002)
+    eq(mainSaved, nil)
+    eq(mainErr, "wrong_slot")
+    eq(list.slots.off_hand, nil)
+    local importedMain = CrusaderStrikeGearSets.ApplyImport(db, {
+      lists = {
+        {
+          local_id = "fresh-offhand",
+          name = "Fresh",
+          type = "max_level",
+          edited_at = "2099-01-02T00:00:00Z",
+          edited_in = "web",
+          slots = { off_hand = 930002, chest = 14148 },
+          removes = {},
+        },
+      },
+    })
+    ok(importedMain)
+    local fresh = CrusaderStrikeGearSets.FindByLocalId(db, "fresh-offhand")
+    eq(fresh.slots.off_hand, nil)
+    eq(fresh.slots.chest, 14148)
+    _G.GetItemInfoInstant = prev
   end)
 end)
 

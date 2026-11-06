@@ -226,3 +226,5 @@ Policy unchanged: no invented item IDs. v0.2.0 bundles **Ragefire Chasm (389)** 
 | Bazzalan | Chasm Walkers | 273007 | questing.wiki Forever item |
 
 Boss↔drop mapping also matches Wowhead Forever RFC overview loot tables (names). All other Forever dungeons: TODO(unverified) in `Data/Loot.lua` / `docs/loot-data.md`.
+
+The character-pane gear browser (`docs/character-gear-tab.md`) uses the same verification rule. AtlasLoot Classic `AtlasLootClassic_DungeonsAndRaids` `data.lua` is a GPL-2.0 layout reference only — do not copy it wholesale. Extra or changed Forever drops belong in `Data/ForeverLootOverlay.lua`, keyed by InstanceID (`instanceMapId`), and only after the item IDs are re-verified the same way as `Data/Loot.lua`.

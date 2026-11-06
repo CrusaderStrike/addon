@@ -24,14 +24,46 @@ _G.GameTooltip = {
 }
 _G.IsShiftKeyDown = function() return false end
 _G.IsAltKeyDown = function() return false end
+-- Deterministic icons so GearTab tests can assert real textures (not QuestionMark).
+_G.GetItemIcon = function(itemId)
+  itemId = tonumber(itemId)
+  if not itemId then return nil end
+  return "Interface\\Icons\\INV_CS_Item_" .. tostring(itemId)
+end
+_G.GetItemInfoInstant = function(itemId)
+  itemId = tonumber(itemId)
+  if not itemId then return nil end
+  return "Item", nil, nil, nil, _G.GetItemIcon(itemId)
+end
+_G.C_Item = {
+  GetItemIconByID = function(itemId)
+    return _G.GetItemIcon(itemId)
+  end,
+  RequestLoadItemDataByID = function() end,
+}
+_G.StaticPopupDialogs = _G.StaticPopupDialogs or {}
+_G.StaticPopup_Show = function(which, text_arg1, text_arg2, data)
+  local dialog = _G.StaticPopupDialogs[which]
+  _G.StaticPopup_displayed = {
+    which = which,
+    text_arg1 = text_arg1,
+    text_arg2 = text_arg2,
+    data = data,
+    dialog = dialog,
+  }
+  return _G.StaticPopup_displayed
+end
 
 function _G.CreateFrame(frameType, name, parent, template)
   local f = {
     _type = frameType,
     _name = name,
+    _parent = parent,
+    _template = template,
     _scripts = {},
     _events = {},
     _shown = false,
+    _level = 0,
   }
   function f:RegisterEvent(e)
     if e == "COMBAT_LOG_EVENT_UNFILTERED" then
@@ -42,9 +74,88 @@ function _G.CreateFrame(frameType, name, parent, template)
   end
   function f:UnregisterEvent(e) self._events[e] = nil end
   function f:SetScript(ev, fn) self._scripts[ev] = fn end
-  function f:SetSize() end
-  function f:SetPoint() end
-  function f:SetFrameStrata() end
+  function f:GetScript(ev) return self._scripts[ev] end
+  function f:HookScript(ev, fn)
+    local prev = self._scripts[ev]
+    self._scripts[ev] = function(...)
+      if prev then prev(...) end
+      if fn then fn(...) end
+    end
+  end
+  function f:SetSize(w, h)
+    self._width = w
+    self._height = h
+  end
+  function f:SetPoint(point, arg2, arg3, arg4, arg5)
+    self._points = self._points or {}
+    local rel, relPoint, x, y
+    if type(arg2) == "number" or arg2 == nil then
+      x, y = arg2, arg3
+    elseif type(arg3) == "number" then
+      rel, x, y = arg2, arg3, arg4
+    else
+      rel, relPoint, x, y = arg2, arg3, arg4, arg5
+    end
+    self._points[#self._points + 1] = {
+      point = point,
+      rel = rel,
+      relPoint = relPoint,
+      x = x,
+      y = y,
+    }
+  end
+  function f:SetAllPoints(rel)
+    self._allPoints = rel or self._parent
+    self._points = {}
+  end
+  function f:ClearAllPoints()
+    self._points = {}
+    self._allPoints = nil
+  end
+  function f:GetNumPoints()
+    return self._points and #self._points or 0
+  end
+  function f:GetPoint(index)
+    local p = self._points and self._points[index or 1]
+    if not p then
+      return nil
+    end
+    return p.point, p.rel, p.relPoint, p.x, p.y
+  end
+  function f:GetWidth()
+    return self._width
+  end
+  function f:GetHeight()
+    return self._height
+  end
+  function f:SetParent(p) self._parent = p end
+  function f:GetParent() return self._parent end
+  function f:SetFrameLevel(level) self._level = level end
+  function f:GetFrameLevel() return self._level or 0 end
+  function f:SetShown(shown) self._shown = not not shown end
+  function f:SetID(id) self._id = id end
+  function f:GetID() return self._id end
+  function f:SetChecked(checked) self._checked = not not checked end
+  function f:GetChecked() return self._checked end
+  function f:LockHighlight() self._lockedHighlight = true end
+  function f:UnlockHighlight() self._lockedHighlight = false end
+  function f:SetHighlightTexture() end
+  function f:SetAlpha() end
+  function f:Raise() end
+  function f:RegisterForClicks() end
+  function f:SetCustomOnMouseUpHandler(fn) self._mouseup = fn end
+  function f:SetHitRectInsets() end
+  function f:SetClampedToScreen() end
+  function f:EnableMouseWheel() end
+  function f:SetBackdropBorderColor() end
+  function f:Click() end
+  function f:SetAttribute() end
+  function f:SetFrameStrata(strata)
+    self._strata = strata
+  end
+  function f:GetFrameStrata()
+    return self._strata
+  end
   function f:SetMovable() end
   function f:EnableMouse() end
   function f:RegisterForDrag() end
@@ -53,16 +164,38 @@ function _G.CreateFrame(frameType, name, parent, template)
   function f:SetBackdrop() end
   function f:SetBackdropColor() end
   function f:CreateFontString()
-    return {
-      SetPoint = noop,
-      SetText = noop,
-      SetWidth = noop,
-      SetJustifyH = noop,
-      SetTextColor = noop,
-    }
+    local fs = { _shown = true }
+    function fs:SetPoint() end
+    function fs:SetText(t) self._text = t end
+    function fs:GetText() return self._text end
+    function fs:SetWidth() end
+    function fs:SetHeight() end
+    function fs:SetJustifyH() end
+    function fs:SetJustifyV() end
+    function fs:SetTextColor(r, g, b) self._color = { r, g, b } end
+    function fs:SetFontObject() end
+    function fs:SetWordWrap() end
+    function fs:SetSpacing() end
+    function fs:SetAlpha() end
+    function fs:Hide() self._shown = false end
+    function fs:Show() self._shown = true end
+    function fs:IsShown() return self._shown and true or false end
+    function fs:ClearAllPoints() end
+    return fs
   end
   function f:CreateTexture()
-    return { SetSize = noop, SetPoint = noop, SetTexture = noop }
+    return {
+      SetSize = noop,
+      SetPoint = noop,
+      SetAllPoints = noop,
+      SetTexture = function(self, t) self._tex = t end,
+      SetTexCoord = noop,
+      SetBlendMode = noop,
+      SetAlpha = noop,
+      Hide = noop,
+      Show = noop,
+      GetTexture = function(self) return self._tex end,
+    }
   end
   function f:IsShown()
     return self._shown
@@ -75,8 +208,12 @@ function _G.CreateFrame(frameType, name, parent, template)
   function f:SetItemByID() end
   function f:SetMultiLine() end
   function f:SetFontObject() end
-  function f:SetWidth() end
-  function f:SetHeight() end
+  function f:SetWidth(w)
+    self._width = w
+  end
+  function f:SetHeight(h)
+    self._height = h
+  end
   function f:SetAutoFocus() end
   function f:SetText(t) self._text = t end
   function f:GetText() return self._text end
@@ -85,7 +222,9 @@ function _G.CreateFrame(frameType, name, parent, template)
   function f:SetScrollChild() end
   function f:Hide() self._shown = false end
   function f:Show() self._shown = true end
-  function f:SetText() end -- button
+  function f:SetText(t)
+    self._text = t
+  end
   if name then
     _G[name] = f
   end
@@ -111,7 +250,35 @@ _G.GetInventoryItemLink = function(unit, slot)
   end
   return nil
 end
-_G.C_Timer = { After = function(sec, fn) end }
+-- After(0) runs immediately so deferred UI work is visible to tests.
+-- Longer delays stay queued and are not flushed (Equip debounce must not fire).
+_G.C_Timer = {
+  After = function(sec, fn)
+    if sec == 0 and type(fn) == "function" then
+      fn()
+    end
+  end,
+}
+
+-- Test stand-in for the client hooksecurefunc: original runs, then the hook.
+-- Production code must call this and must not replace ShowSubFrame itself.
+function _G.hooksecurefunc(tbl, name, fn)
+  if type(tbl) == "string" then
+    fn = name
+    name = tbl
+    tbl = _G
+  end
+  _G._CS_HookSecureCount = (_G._CS_HookSecureCount or 0) + 1
+  local orig = tbl[name]
+  tbl[name] = function(...)
+    if orig then
+      orig(...)
+    end
+    if fn then
+      fn(...)
+    end
+  end
+end
 _G.UnitExists = function(unit) return unit == "player" end
 _G.UnitIsUnit = function(a, b) return a == b end
 _G.UnitInParty = function() return true end
@@ -146,6 +313,7 @@ function M.load_addon()
   local files = {
     "Data/Bosses.lua",
     "Data/Loot.lua",
+    "Data/ForeverLootOverlay.lua",
     "Logic/Idempotency.lua",
     "Logic/Encoder.lua",
     "Logic/RunLifecycle.lua",
@@ -157,12 +325,14 @@ function M.load_addon()
     "Logic/EquippedGear.lua",
     "Logic/GearEncoder.lua",
     "Logic/GearSets.lua",
+    "Logic/GearBrowser.lua",
     "Core.lua",
     "DungeonLog.lua",
     "Export.lua",
     "PvpLog.lua",
     "LootBrowser.lua",
     "GearSetsUI.lua",
+    "Character/GearTab.lua",
   }
   for _, rel in ipairs(files) do
     local path = base .. "/" .. rel

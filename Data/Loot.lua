@@ -37,13 +37,19 @@ local SLOT = {
 CrusaderStrikeLoot.SLOTS = SLOT
 
 -- Quality: 0 poor .. 5 legendary (WoW ITEM_QUALITY colors).
-local function item(id, name, slot, quality)
-  return {
+local function item(id, name, slot, quality, armor)
+  local row = {
     itemId = id,
     name = name,
     slot = slot,
     quality = quality or 2, -- uncommon default; rares below use 3
   }
+  -- cloth / leather / mail / plate when known. Lets the browser and equip
+  -- check work before the client caches GetItemInfo.
+  if type(armor) == "string" and armor ~= "" then
+    row.armor = armor
+  end
+  return row
 end
 
 -- instanceMapID -> { name, bosses = { { npcId, name, order, items = { ... } } } }
@@ -71,8 +77,9 @@ local FOREVER = {
         items = {
           -- Classic-retained IDs; Forever beta client (Ladderly)
           item(14145, "Cursed Felblade", SLOT.WEAPON, 3),
-          item(14148, "Crystalline Cuffs", SLOT.WRIST, 3),
-          item(14149, "Subterranean Cape", SLOT.BACK, 3),
+          -- Classic mail wrists (not leather).
+          item(14148, "Crystalline Cuffs", SLOT.WRIST, 3, "mail"),
+          item(14149, "Subterranean Cape", SLOT.BACK, 3, "cloth"),
         },
       },
       {
@@ -80,8 +87,8 @@ local FOREVER = {
         name = "Jergosh the Invoker",
         order = 3,
         items = {
-          item(14147, "Cavedweller Bracers", SLOT.WRIST, 3),
-          item(14150, "Robe of Evocation", SLOT.CHEST, 3),
+          item(14147, "Cavedweller Bracers", SLOT.WRIST, 3, "leather"),
+          item(14150, "Robe of Evocation", SLOT.CHEST, 3, "cloth"),
           item(14151, "Chanting Blade", SLOT.WEAPON, 3),
         },
       },

@@ -310,10 +310,33 @@ SlashCmdList["CRUSADERSTRIKE"] = function(msg)
     else
       CS.Print("loot browser unavailable")
     end
+  elseif cmd == "geartab" then
+    if CS.CharacterGearTab and CS.CharacterGearTab.Show then
+      CS.CharacterGearTab.Show()
+    else
+      CS.Print("character gear tab unavailable")
+    end
   elseif cmd == "gearsets" or cmd == "gear" then
     local sub = rest and rest:match("^(%S+)")
     if sub == "check" then
       CS.Print(CS.GearSetsCheckLine())
+    elseif sub == "delete" then
+      local name = rest and rest:match("^%S+%s+(.*)$")
+      name = name and name:match("^%s*(.-)%s*$") or ""
+      if name == "" then
+        CS.Print("usage: /cs gearsets delete <name>")
+        return
+      end
+      if not CrusaderStrikeGearSets or not CrusaderStrikeGearSets.Delete then
+        CS.Print("gear sets unavailable")
+        return
+      end
+      local okDel = CrusaderStrikeGearSets.Delete(CS.GetCharDB(), name)
+      if okDel then
+        CS.Print('Deleted gear set "' .. name .. '".')
+      else
+        CS.Print('No gear set named "' .. name .. '".')
+      end
     elseif CS.GearSetsUI and CS.GearSetsUI.Show then
       CS.GearSetsUI.Show()
     else
@@ -327,6 +350,6 @@ SlashCmdList["CRUSADERSTRIKE"] = function(msg)
     end
     CS.ImportGearString(raw)
   else
-    CS.Print("Commands: /cs loot | /cs wishlist | /cs gearsets [check] | /cs import <CSGEAR1> | /cs export [key] | /cs status | /cs pvp | /cs debug [on|off] | /cs debug simulate kill [boss]|death [unit] | /cs debug events [on|off|dump]")
+    CS.Print("Commands: /cs loot | /cs wishlist | /cs geartab | /cs gearsets [check|delete <name>] | /cs import <CSGEAR1> | /cs export [key] | /cs status | /cs pvp | /cs debug [on|off] | /cs debug simulate kill [boss]|death [unit] | /cs debug events [on|off|dump]")
   end
 end

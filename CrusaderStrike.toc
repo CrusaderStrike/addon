@@ -13,6 +13,7 @@
 
 Data\Bosses.lua
 Data\Loot.lua
+Data\ForeverLootOverlay.lua
 Logic\Idempotency.lua
 Logic\Encoder.lua
 Logic\RunLifecycle.lua
@@ -21,10 +22,13 @@ Logic\Detection.lua
 Logic\DebugEvents.lua
 Logic\WishList.lua
 Logic\GearSlots.lua
+Logic\GearEquip.lua
 Logic\GearOps.lua
 Logic\GearEncoder.lua
 Logic\EquippedGear.lua
 Logic\GearSets.lua
+Logic\GearBrowser.lua
+Logic\GearStats.lua
 Core.lua
 DungeonLog.lua
 DebugSimulate.lua
@@ -32,3 +36,5 @@ Export.lua
 PvpLog.lua
 LootBrowser.lua
 GearSetsUI.lua
+Character\GearLayout.lua
+Character\GearTab.lua

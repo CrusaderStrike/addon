@@ -4,6 +4,13 @@ All notable changes to CrusaderStrike (World of Warcraft: Forever only).
 
 ## Unreleased
 
+### Added
+- **Crusader Strike gear window:** `/cs geartab` opens `CrusaderStrikeCharacterGearFrame`, a standalone window (own size and chrome, parented to `UIParent`) with CS-owned gear slots plus Gear Sets, Browser, and Stats panes. The Character / PaperDoll tab is not covered or restyled. A logo side-tab on the character frame is only a launcher (`ModeTabs.Tabs` is not injected). See `docs/character-gear-tab.md`.
+
+### Fixed
+- **Character gear window:** Gear Sets, Browser, and Stats are separate panes. Dungeon list covers every indexed Forever dungeon. Results are item icons with `SetItemByID` tooltips. Left-click equips into the current gear set; right-click a CS slot unequips. Create gear set saves a real set. CharacterFrame is not opened with `ShowUIPanel` / `Show` / `RefreshDisplay`.
+- **Gear pop-out alignment:** Gear Sets, Browser, and Stats are a right-side pop-out anchored to the CS window (main doll on the left). Browser content is anchored to that pane. Closing the pop-out hides all three panels.
+
 ## 0.3.5 (WoW Forever)
 
 - Release 2026-11-05 for #26 morning check: includes #55/#56 CSGEAR1 morning-path harden and #57/#58 live gear-lists compat + `/cs gearsets check` (also #49/#51/#53 envelope harden). No schema change.

@@ -94,6 +94,23 @@ function G.FindByLocalId(charDB, local_id)
   return nil, nil
 end
 
+function G.FindByName(charDB, name)
+  local wanted = trim(name):lower()
+  if wanted == "" then
+    return nil, nil
+  end
+  local bucket = G.EnsureDB(charDB)
+  if not bucket then
+    return nil, nil
+  end
+  for i, list in ipairs(bucket.lists) do
+    if trim(list.name):lower() == wanted then
+      return list, i
+    end
+  end
+  return nil, nil
+end
+
 function G.FindById(charDB, id)
   if id == nil then
     return nil, nil
@@ -260,7 +277,13 @@ function G.CreateSet(charDB, fields, player_level)
         if item_id == nil then
           list.slots[slot] = nil
         elseif type(item_id) == "number" and item_id == math.floor(item_id) and item_id >= 1 then
-          list.slots[slot] = item_id
+          local allow = true
+          if CrusaderStrikeGearEquip and CrusaderStrikeGearEquip.CanPlace then
+            allow = CrusaderStrikeGearEquip.CanPlace(item_id, slot, CrusaderStrikeGearEquip.PlayerClass(), fields.slots)
+          end
+          if allow then
+            list.slots[slot] = item_id
+          end
         end
       end
     end
@@ -371,6 +394,15 @@ function G.SetSlot(charDB, local_id, slot, item_id)
   if item_id ~= nil then
     if type(item_id) ~= "number" or item_id ~= math.floor(item_id) or item_id < 1 or item_id > 2147483647 then
       return nil, "validation"
+    end
+    if CrusaderStrikeGearEquip and CrusaderStrikeGearEquip.CanPlace then
+      local classToken = CrusaderStrikeGearEquip.PlayerClass()
+      local okPlace, placeReason = CrusaderStrikeGearEquip.CanPlace(item_id, slot, classToken, list.slots)
+      if not okPlace then
+        return nil, placeReason or "wrong_slot"
+      end
+    elseif slot == "off_hand" and CrusaderStrikeGearSlots.OffhandRejects(item_id) then
+      return nil, "wrong_slot"
     end
   end
 
@@ -789,6 +821,28 @@ function G.DeleteSet(charDB, local_id)
   return true
 end
 
+-- Remove one set by local id, server id, or name. An unknown key is a no-op.
+function G.Delete(charDB, nameOrId)
+  if type(nameOrId) ~= "string" then
+    return nil
+  end
+  local key = trim(nameOrId)
+  if key == "" then
+    return nil
+  end
+  local list = G.FindByLocalId(charDB, key)
+  if not list then
+    list = G.FindById(charDB, key)
+  end
+  if not list then
+    list = G.FindByName(charDB, key)
+  end
+  if not list then
+    return nil
+  end
+  return G.DeleteSet(charDB, list.local_id)
+end
+
 local function copy_list(src)
   local slots = {}
   if type(src.slots) == "table" then
@@ -940,6 +994,11 @@ function G.ApplyImport(charDB, payload)
       end
       copied.role_spec = role_spec
       copied.slots = apply_removes_to_slots(copied.slots, incoming.removes)
+      if CrusaderStrikeGearEquip and CrusaderStrikeGearEquip.DropIllegal then
+        CrusaderStrikeGearEquip.DropIllegal(copied.slots)
+      elseif type(copied.slots) == "table" and CrusaderStrikeGearSlots.OffhandRejects(copied.slots.off_hand) then
+        copied.slots.off_hand = nil
+      end
       copied.removes = {} -- consumed
       new_lists[#new_lists + 1] = copied
     else
@@ -967,10 +1026,23 @@ function G.ApplyImport(charDB, payload)
         end
         if type(incoming.slots) == "table" then
           for k, v in pairs(incoming.slots) do
-            existing.slots[k] = v
+            local accept = true
+            if CrusaderStrikeGearEquip and CrusaderStrikeGearEquip.CanPlace then
+              accept = CrusaderStrikeGearEquip.CanPlace(v, k, CrusaderStrikeGearEquip.PlayerClass(), incoming.slots)
+            elseif k == "off_hand" and CrusaderStrikeGearSlots.OffhandRejects(v) then
+              accept = false
+            end
+            if accept then
+              existing.slots[k] = v
+            end
           end
         end
         existing.slots = apply_removes_to_slots(existing.slots, incoming.removes)
+        if CrusaderStrikeGearEquip and CrusaderStrikeGearEquip.DropIllegal then
+          CrusaderStrikeGearEquip.DropIllegal(existing.slots)
+        elseif type(existing.slots) == "table" and CrusaderStrikeGearSlots.OffhandRejects(existing.slots.off_hand) then
+          existing.slots.off_hand = nil
+        end
         existing.removes = {}
       else
         -- keep local; still link server id when web echoes local_id→id
