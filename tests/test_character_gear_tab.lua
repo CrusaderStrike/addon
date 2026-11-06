@@ -1767,4 +1767,119 @@ describe("character gear tab scaffold", function()
     _G.CharacterFrame = prevChar
     _G.CrusaderStrikeCharDB = prevDb
   end)
+
+  it("sums gear set stats and refreshes when items load or the set changes", function()
+    local UI = CrusaderStrike.CharacterGearTab
+    local GS = CrusaderStrikeGearStats
+    local prevChar = _G.CharacterFrame
+    local prevDb = _G.CrusaderStrikeCharDB
+    local prevStats = _G.GetItemStats
+    _G.CrusaderStrikeCharDB = {}
+    _G.CharacterFrame = {
+      ModeTabs = { Tabs = {} },
+      shown = true,
+      IsShown = function(self) return self.shown end,
+    }
+    local function line(label)
+      for _, fs in ipairs(_G.CrusaderStrikeGearStatsPanel._csStatLines) do
+        if fs._label == label then
+          return fs:GetText()
+        end
+      end
+    end
+    local statsById = {
+      [1001] = { ITEM_MOD_STAMINA_SHORT = 10, ITEM_MOD_STRENGTH_SHORT = 5 },
+      [1002] = { ITEM_MOD_STAMINA_SHORT = 4, ITEM_MOD_SPELL_POWER_SHORT = 12 },
+      [1003] = { ITEM_MOD_AGILITY_SHORT = 7 },
+      [1004] = { ITEM_MOD_DAMAGE_PER_SECOND_SHORT = 12.5, ITEM_MOD_STAMINA_SHORT = 1 },
+    }
+    local ready = { [1003] = false }
+    _G.GetItemStats = function(link)
+      local id = tonumber(tostring(link):match("(%d+)"))
+      if id == 1003 and not ready[1003] then
+        return nil
+      end
+      return statsById[id] or {}
+    end
+    UI.Show()
+    UI.DeselectSlot()
+    for _, info in ipairs(UI.SLOT_BUTTONS) do
+      if UI.GetPreview().slots[info.slot] then
+        UI.UnequipSlot(info.slot)
+      end
+    end
+    local totals = GS.Sum({})
+    eq(totals.stamina, 0)
+    eq(totals.strength, 0)
+    eq(totals.dps, 0)
+    eq(line("Stamina"), "Stamina  0")
+    eq(line("DPS"), "DPS  0")
+    eq(_G.CrusaderStrikeGearStatsChild:GetHeight(), #UI.STAT_LABELS * 16)
+    local _, filled, pending = UI.GetGearStats()
+    eq(filled, 0)
+    eq(#pending, 0)
+    ok(_G.CrusaderStrikeGearStatsPanel._csFooter:GetText():find("Slots filled: 0", 1, true) ~= nil)
+
+    local summed = GS.Sum({ head = 1001, chest = 1002, finger1 = 1004 })
+    eq(summed.stamina, 15)
+    eq(summed.strength, 5)
+    eq(summed.spellPower, 12)
+    eq(summed.dps, 0)
+    local weapon = GS.Sum({ main_hand = 1004, head = 1001 })
+    eq(weapon.dps, 12.5)
+    eq(weapon.stamina, 11)
+
+    UI.OnGearSlot("head", "LeftButton")
+    ok(UI.EquipItem(1001))
+    UI.OnGearSlot("chest", "LeftButton")
+    ok(UI.EquipItem(1002))
+    eq(line("Stamina"), "Stamina  14")
+    eq(line("Strength"), "Strength  5")
+    eq(line("Spell Power"), "Spell Power  12")
+    eq(line("Agility"), "Agility  0")
+    local _, filledTwo = UI.GetGearStats()
+    eq(filledTwo, 2)
+
+    UI.OnGearSlot("wrist", "LeftButton")
+    ok(UI.EquipItem(1003))
+    local _, _, pendingOne = UI.GetGearStats()
+    eq(#pendingOne, 1)
+    ok(_G.CrusaderStrikeGearStatsPanel._csFooter:GetText():find("Loading 1 item", 1, true) ~= nil)
+    eq(line("Agility"), "Agility  0")
+    ready[1003] = true
+    local watcher = _G.CrusaderStrikeGearItemInfoWatcher
+    watcher:GetScript("OnEvent")(watcher, "GET_ITEM_INFO_RECEIVED", 1003)
+    eq(line("Agility"), "Agility  7")
+    eq(line("Stamina"), "Stamina  14")
+    local _, filledThree, pendingDone = UI.GetGearStats()
+    eq(filledThree, 3)
+    eq(#pendingDone, 0)
+
+    local G = CrusaderStrikeGearSets
+    local setA = G.CreateSet(_G.CrusaderStrikeCharDB, {
+      name = "Stats A",
+      type = "max_level",
+      slots = { head = 1001, chest = 1002 },
+    }, 60)
+    local setB = G.CreateSet(_G.CrusaderStrikeCharDB, {
+      name = "Stats B",
+      type = "max_level",
+      slots = { head = 1002 },
+    }, 60)
+    ok(UI.SelectSet(setA.local_id))
+    eq(line("Stamina"), "Stamina  14")
+    eq(line("Spell Power"), "Spell Power  12")
+    ok(UI.SelectSet(setB.local_id))
+    eq(line("Stamina"), "Stamina  4")
+    eq(line("Strength"), "Strength  0")
+    eq(line("Spell Power"), "Spell Power  12")
+    ok(UI.UnequipSlot("head"))
+    eq(line("Stamina"), "Stamina  0")
+    eq(line("Spell Power"), "Spell Power  0")
+    eq(UI.GetPreview().slots.head, nil)
+
+    _G.GetItemStats = prevStats
+    _G.CharacterFrame = prevChar
+    _G.CrusaderStrikeCharDB = prevDb
+  end)
 end)

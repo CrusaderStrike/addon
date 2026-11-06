@@ -28,6 +28,7 @@ Logic\GearEncoder.lua
 Logic\EquippedGear.lua
 Logic\GearSets.lua
 Logic\GearBrowser.lua
+Logic\GearStats.lua
 Core.lua
 DungeonLog.lua
 DebugSimulate.lua

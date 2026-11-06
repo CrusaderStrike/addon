@@ -116,8 +116,19 @@ logo button in the strip.
   **scrollable icon grid** (`CrusaderStrikeGearResultScroll`) whose column
   count fills the pop-out inner width. There is no hard 8-row cap; every
   matching Forever-overlay item is reachable.
-- Stats pane shows classic stat name placeholders and a filled-slot count.
-  Totals are not computed yet.
+- Stats pane (`Gear set stats`) sums the current planner slots, including
+  ammo and the ranged slot. `GetItemStats("item:" .. id)` supplies
+  `ITEM_MOD_*` and `RESISTANCE*_NAME` values (strength, agility, stamina,
+  intellect, spirit, armor, the five resists, attack power, ranged attack
+  power, spell power, healing, hit, crit, MP5, block, defense, and weapon
+  DPS). A missing total is 0. Lines sit in `CrusaderStrikeGearStatsScroll`
+  so they fit the pop-out. An item `GetItemStats` does not know yet is
+  requested with `RequestLoadItemDataByID` and, when present,
+  `Item:CreateFromItemID` / `ContinueOnItemLoad`. The footer reads
+  `Slots filled: N` and, while those items are pending, `Loading N items`.
+  Totals refresh when a slot changes, a set is loaded or deleted, the
+  browser equips or unequips, the item-info event fires, and when the CS
+  tab is shown.
 - The wire slot `ranged` changes label and empty art by class. Hunter,
   warrior, and rogue use the bow slot `UI-PaperDoll-Slot-Ranged` plus Ammo.
   Druid uses `UI-PaperDoll-Slot-Relic`. Shaman uses
@@ -157,10 +168,5 @@ a head click shows an empty Head list until a verified head drop is added.
 
 ## Next implementation step
 
-Wire gear-set slot fills through to real preview stats: when a browser row
-equips an item onto a CS slot, resolve that item's Forever stats and sum them
-in the Stats pane. The equip path already stores the slot
-(`CharacterGearTab.EquipItem`) and refreshes the panel; the totals function is
-still a placeholder. After that, extend `Data/ForeverLootOverlay.lua` with
-hand-verified dungeons — still no Atlas copy, and still no Equipment Manager
-sync.
+Extend `Data/ForeverLootOverlay.lua` with hand-verified dungeons — still no
+Atlas copy, and still no Equipment Manager sync.

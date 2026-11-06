@@ -88,16 +88,12 @@ UI.SLOT_BUTTONS = {
   { global = "CrusaderStrikeTabardSlot", slot = "tabard" },
 }
 
-UI.STAT_LABELS = {
-  "Strength",
-  "Agility",
-  "Stamina",
-  "Intellect",
-  "Spirit",
-  "Armor",
-  "Attack Power",
-  "Spell Power",
-}
+UI.STAT_LABELS = {}
+if CrusaderStrikeGearStats and CrusaderStrikeGearStats.LINES then
+  for i, line in ipairs(CrusaderStrikeGearStats.LINES) do
+    UI.STAT_LABELS[i] = line.label
+  end
+end
 
 local SLOT_SIZE = 37
 local ICON_SIZE = 42
@@ -346,17 +342,76 @@ local function refresh_slot_icons()
   end
 end
 
-function refresh_stats()
-  state.filled = filled_count(state.previewSlots)
-  for i, label in ipairs(UI.STAT_LABELS) do
-    set_text(statLines[i], label .. "  —")
+local statLoadRequested = {}
+
+local function request_stat_item(itemId)
+  if statLoadRequested[itemId] then
+    return
   end
+  statLoadRequested[itemId] = true
+  if C_Item and C_Item.RequestLoadItemDataByID then
+    C_Item.RequestLoadItemDataByID(itemId)
+  end
+  if Item and Item.CreateFromItemID then
+    local obj = Item:CreateFromItemID(itemId)
+    local cached = obj and obj.IsItemDataCached and obj:IsItemDataCached()
+    if obj and obj.ContinueOnItemLoad and not cached then
+      obj:ContinueOnItemLoad(function()
+        statLoadRequested[itemId] = nil
+        refresh_stats()
+      end)
+    end
+  end
+end
+
+function refresh_stats()
+  local totals, filled, pending = {}, 0, {}
+  if CrusaderStrikeGearStats and CrusaderStrikeGearStats.Sum then
+    totals, filled, pending = CrusaderStrikeGearStats.Sum(state.previewSlots)
+  else
+    filled = filled_count(state.previewSlots)
+  end
+  state.filled = filled
+  state._csStatTotals = totals
+  state._csStatPending = pending
+  for _, itemId in ipairs(pending or {}) do
+    request_stat_item(itemId)
+  end
+  for id in pairs(statLoadRequested) do
+    local still = false
+    for _, itemId in ipairs(pending or {}) do
+      if itemId == id then
+        still = true
+        break
+      end
+    end
+    if not still then
+      statLoadRequested[id] = nil
+    end
+  end
+  local lines = (CrusaderStrikeGearStats and CrusaderStrikeGearStats.LINES) or {}
+  for i, line in ipairs(lines) do
+    local fs = statLines[i]
+    if fs then
+      local amount = totals[line.key] or 0
+      local text = line.label .. "  " .. CrusaderStrikeGearStats.FormatAmount(amount)
+      set_text(fs, text)
+      fs._label = line.label
+    end
+  end
+  local nPending = pending and #pending or 0
   local slotNote = state.activeSlot and ("Slot: " .. state.activeSlot .. ". ") or ""
-  set_text(
-    statsFooter,
-    slotNote .. "Slots filled: " .. tostring(state.filled) .. ". Stat totals are not computed yet."
-  )
+  local loading = ""
+  if nPending > 0 then
+    local noun = (nPending == 1) and "item" or "items"
+    loading = " Loading " .. tostring(nPending) .. " " .. noun .. "."
+  end
+  set_text(statsFooter, slotNote .. "Slots filled: " .. tostring(state.filled) .. "." .. loading)
   refresh_slot_icons()
+end
+
+function UI.GetGearStats()
+  return state._csStatTotals or {}, state.filled or 0, state._csStatPending or {}
 end
 
 local function mark_icon(btn, selected)
@@ -2729,23 +2784,37 @@ local function ensure_ui()
   statsPanel:Hide()
 
   statsHeader = add_text(statsPanel, "GameFontNormal", "Gear set stats", 10, -10)
-  local statsHint = add_text(statsPanel, "GameFontDisableSmall", "Totals update when gear-set slots are filled. Not live character stats.", 10, -28)
+  local statsHint = add_text(statsPanel, "GameFontDisableSmall", "Totals of this gear set. Not live character stats.", 10, -28)
   if statsHint.SetWidth then
     statsHint:SetWidth(UI.POPOUT_INNER)
   end
-  for i, label in ipairs(UI.STAT_LABELS) do
-    statLines[i] = add_text(statsPanel, "GameFontHighlightSmall", label .. "  —", 10, -52 - ((i - 1) * 16))
+  statsFooter = add_text(statsPanel, "GameFontDisableSmall", "Slots filled: 0.", 10, -8)
+  if statsFooter.ClearAllPoints then
+    statsFooter:ClearAllPoints()
   end
-  statsFooter = add_text(
-    statsPanel,
-    "GameFontDisableSmall",
-    "Slots filled: 0. Stat totals are not computed yet.",
-    10,
-    -52 - (#UI.STAT_LABELS * 16) - 8
-  )
+  if statsFooter.SetPoint then
+    statsFooter:SetPoint("BOTTOMLEFT", statsPanel, "BOTTOMLEFT", 10, 8)
+    statsFooter:SetPoint("BOTTOMRIGHT", statsPanel, "BOTTOMRIGHT", -10, 8)
+  end
   if statsFooter.SetWidth then
     statsFooter:SetWidth(UI.POPOUT_INNER)
   end
+  local statsScroll = CreateFrame("ScrollFrame", "CrusaderStrikeGearStatsScroll", statsPanel, "UIPanelScrollFrameTemplate")
+  statsScroll:SetPoint("TOPLEFT", statsHint, "BOTTOMLEFT", 0, -4)
+  statsScroll:SetPoint("BOTTOMRIGHT", statsFooter, "TOPRIGHT", 0, 4)
+  local statsChild = CreateFrame("Frame", "CrusaderStrikeGearStatsChild", statsScroll)
+  local lineH = 16
+  statsChild:SetSize(UI.POPOUT_INNER, math.max(lineH, #UI.STAT_LABELS * lineH))
+  if statsScroll.SetScrollChild then
+    statsScroll:SetScrollChild(statsChild)
+  end
+  for i, label in ipairs(UI.STAT_LABELS) do
+    statLines[i] = add_text(statsChild, "GameFontHighlightSmall", label .. "  0", 0, -((i - 1) * lineH))
+    statLines[i]._label = label
+  end
+  statsPanel._csStatLines = statLines
+  statsPanel._csStatsChild = statsChild
+  statsPanel._csFooter = statsFooter
 
   show_view("sets")
   anchor_content_pane(root, cf)
@@ -2813,8 +2882,9 @@ function UI.Install()
       if not itemId then
         return
       end
-      -- Refresh icons once the client has the Forever item texture.
-      refresh_slot_icons()
+      -- Item data arrived: icons, browser tint, and gear-set stat totals.
+      statLoadRequested[itemId] = nil
+      refresh_stats()
       if state.view == "browser" then
         refresh_browser()
       end

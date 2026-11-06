@@ -31,6 +31,7 @@ dofile(addon_root .. "Logic/GearEncoder.lua")
 dofile(addon_root .. "Logic/EquippedGear.lua")
 dofile(addon_root .. "Logic/GearSets.lua")
 dofile(addon_root .. "Logic/GearBrowser.lua")
+dofile(addon_root .. "Logic/GearStats.lua")
 
 local passed, failed = 0, 0
 local current = "?"
