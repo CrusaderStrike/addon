@@ -145,8 +145,29 @@ local function armor_tier(itemId)
     end
   end
 
+  local function bundled_tier()
+    if not CrusaderStrikeLoot or not CrusaderStrikeLoot.LookupItem then
+      return nil
+    end
+    local it = CrusaderStrikeLoot.LookupItem("forever", itemId)
+    if type(it) ~= "table" or type(it.armor) ~= "string" then
+      return nil
+    end
+    local key = it.armor:lower()
+    if key == "cloth" then
+      return 1
+    elseif key == "leather" then
+      return 2
+    elseif key == "mail" then
+      return 3
+    elseif key == "plate" then
+      return 4
+    end
+    return nil
+  end
+
   if not saw then
-    return "unknown"
+    return bundled_tier() or "unknown"
   end
 
   local isArmor = classID == 4 or (type(itemType) == "string" and itemType:lower() == "armor")
@@ -164,8 +185,9 @@ local function armor_tier(itemId)
     return fromText
   end
   if isArmor then
-    -- Armor with no readable subclass (still caching). Do not guess.
-    return "unknown"
+    -- Armor with no readable subclass (still caching). Bundled loot type wins
+    -- over a guess; otherwise fail closed.
+    return bundled_tier() or "unknown"
   end
   if itemType ~= nil or classID ~= nil then
     return "none"

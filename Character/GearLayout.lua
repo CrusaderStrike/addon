@@ -15,9 +15,17 @@ L.panes = {
   },
   side = {
     frame = "CrusaderStrikeGearPopout",
+    -- Used only when CharacterFrame.RightPaneHost is missing.
     width = 177,
+    -- Forever CharacterFrame.xml RightPaneHost width.
+    hostWidth = 233,
     owns = { "iconRow", "sets", "browser", "stats" },
-    -- Hung off the doll's right edge, full doll height.
+    -- Fills the native right pane so the pop-out center is that pane's center.
+    anchorToRightPane = {
+      { point = "TOPLEFT", rel = "rightPane", relPoint = "TOPLEFT", x = 0, y = 0 },
+      { point = "BOTTOMRIGHT", rel = "rightPane", relPoint = "BOTTOMRIGHT", x = 0, y = 0 },
+    },
+    -- Fallback: hang off the doll's right edge.
     anchor = {
       { point = "TOPLEFT", rel = "doll", relPoint = "TOPRIGHT", x = 0, y = 0 },
       { point = "BOTTOMLEFT", rel = "doll", relPoint = "BOTTOMRIGHT", x = 0, y = 0 },
@@ -51,6 +59,29 @@ L.doll = {
 }
 
 L.slotSize = 37
+
+-- Forever PaperDollItemSlotButton*Template draws these from
+-- Interface\CharacterFrame\Char-Paperdoll-Parts (CharacterFrame.xml).
+-- Left column uses Char-LeftSlot, right column Char-RightSlot, weapon row
+-- Char-BottomSlot. Tex coords and sizes match that file.
+L.slotBorder = {
+  file = "Interface\\CharacterFrame\\Char-Paperdoll-Parts",
+  left = {
+    w = 49, h = 44,
+    coords = { 0.20703125, 0.39843750, 0.59375000, 0.93750000 },
+    point = "TOPLEFT", x = -4, y = 0,
+  },
+  right = {
+    w = 50, h = 44,
+    coords = { 0.00390625, 0.19921875, 0.59375000, 0.93750000 },
+    point = "TOPRIGHT", x = 4, y = 0,
+  },
+  bottom = {
+    w = 42, h = 53,
+    coords = { 0.67187500, 0.83593750, 0.00781250, 0.42187500 },
+    point = "TOPLEFT", x = -4, y = 8,
+  },
+}
 
 -- Columns are ordered lists anchored to the doll. `step` is the distance
 -- from one slot to the next along that column. Offsets are doll-relative.
@@ -105,23 +136,28 @@ L.iconRow = {
   gap = 4,
   tabW = 33,
   tabH = 35,
-  rightInset = 6,
+  -- No extra right inset: the row is only as wide as the three buttons and
+  -- its top-center sits on the pop-out's top-center.
+  rightInset = 0,
+  width = (33 * 3) + (4 * 2),
   points = {
-    { point = "TOPLEFT", rel = "side", relPoint = "TOPLEFT", x = 0, y = -4 },
-    { point = "TOPRIGHT", rel = "side", relPoint = "TOPRIGHT", x = 0, y = -4 },
+    { point = "TOP", rel = "side", relPoint = "TOP", x = 0, y = -4 },
   },
 }
 
--- Sets, Browser, and Stats fill the side pane under the icon row.
--- Equal left/right edges put the Browser on the side pane's center.
+-- Sets, Browser, and Stats sit under the icon row. Left and right insets match
+-- so each panel's horizontal center is the pop-out's center.
 L.panels = {
   sets = { parent = "side" },
   browser = { parent = "side", align = "center" },
   stats = { parent = "side" },
   content = {
+    inset = 0,
     points = {
-      { point = "TOPLEFT", rel = "iconRow", relPoint = "BOTTOMLEFT", x = 0, y = -4 },
-      { point = "BOTTOMRIGHT", rel = "side", relPoint = "BOTTOMRIGHT", x = 0, y = 0 },
+      { point = "TOP", rel = "iconRow", relPoint = "BOTTOM", x = 0, y = -4 },
+      { point = "LEFT", rel = "side", relPoint = "LEFT", x = 0, y = 0 },
+      { point = "RIGHT", rel = "side", relPoint = "RIGHT", x = 0, y = 0 },
+      { point = "BOTTOM", rel = "side", relPoint = "BOTTOM", x = 0, y = 0 },
     },
   },
 }

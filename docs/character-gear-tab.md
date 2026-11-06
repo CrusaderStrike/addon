@@ -44,11 +44,18 @@ logo button in the strip.
 - Layout numbers and ownership live in `Character/GearLayout.lua`. The paper
   doll is centered in `CrusaderStrikeGearMainPane`, which fills
   `CharacterFrame.LeftPaneHost` (398 wide in Forever's CharacterFrame.xml)
-  and does not include `RightPaneHost`. Opening the native right pane widens
+  and does not include `RightPaneHost`. The doll frame has no backdrop or
+  edge. Each CS slot uses the native `Char-LeftSlot` / `Char-RightSlot` /
+  `Char-BottomSlot` art from `Interface\CharacterFrame\Char-Paperdoll-Parts`.
+  The level line is text only; nothing in this addon draws a background
+  behind it. Opening the native right pane widens
   `CharacterFrame` but does not move the doll. The side pane
-  (`CrusaderStrikeGearPopout`) holds the icon row plus Gear Sets, Browser,
-  and Stats. The Browser fills that pane under the icon row, with equal left
-  and right edges, so it is centered in the side pane.
+  (`CrusaderStrikeGearPopout`) fills `CharacterFrame.RightPaneHost` (233 wide
+  in Forever's CharacterFrame.xml) when that frame exists, so the pop-out
+  center matches the right pane. Without it, the pop-out stays 177 wide on
+  the doll's right edge. The Gear Sets / Browser / Stats icon row is
+  `TOP`/`TOP` on the pop-out (centered). Gear Sets, Browser, and Stats use
+  equal left and right insets under that row.
 - **Gear Sets**, **Browser**, and **Stats** are inside the side pane. Their
   icons only switch which panel is selected. Show and hide of the whole side
   pane, including those three icons, follows Forever's native right-pane
@@ -74,9 +81,20 @@ logo button in the strip.
   `GET_ITEM_INFO_RECEIVED` so Forever item textures replace the question-mark
   placeholder once the client has them. Tooltips stay on
   `GameTooltip:SetItemByID`.
+- The browser lists every gear drop for the selected dungeon and search.
+  It does not hide items by class. Pieces the current class cannot equip are
+  drawn with a red icon tint (`SetVertexColor(1, 0.1, 0.1)`) and a red
+  tooltip line. Clicking one does not equip it; `CanPlace` still rejects it.
+  Items whose armor or weapon type is not cached yet stay untinted and are
+  restyled when `GET_ITEM_INFO_RECEIVED` fires. Bundled loot rows may carry
+  `armor = "cloth"|"leather"|"mail"|"plate"` so that check works before the
+  client cache fills. There is no separate item-level filter.
+- Ragefire Chasm boss loot matches the classic boss list (cape, mail cuffs,
+  felblade, cloth robe, leather bracers, chanting blade) plus the verified
+  Forever rares. That list has no waist, leg, or hands drops.
 - Left-click a browser item **equips** it into the current gear set (preview
-  slots + `SetSlot` when a set is selected). This is gear-set state, not the
-  game's EquipItem / Equipment Manager APIs.
+  slots + `SetSlot` when a set is selected) when the class can wear it. This
+  is gear-set state, not the game's EquipItem / Equipment Manager APIs.
 - The dungeon control is a **scrollable list** of dungeon names (All + every
   indexed dungeon) — not a cycling button or a menu of `UIPanelButtonTemplate`
   options. Name / item-ID search stays.

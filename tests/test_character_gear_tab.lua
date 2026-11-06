@@ -133,6 +133,25 @@ describe("character gear tab scaffold", function()
     eq(drel == root, false)
     eq(doll:GetWidth(), 338)
     eq(doll:GetHeight(), 424)
+    eq(doll._csBackdrop, nil)
+    eq(doll._csLevelBackground, nil)
+    eq(_G.CrusaderStrikeGearMainPane._csBackdrop, nil)
+    eq(_G.CrusaderStrikeGearMainPane._csLevelBackground, nil)
+    local borderFile = "Interface\\CharacterFrame\\Char-Paperdoll-Parts"
+    for _, info in ipairs(UI.SLOT_BUTTONS) do
+      local btn = _G[info.global]
+      ok(btn._csSlotBorder ~= nil)
+      eq(btn._csSlotBorderTex, borderFile)
+      eq(btn._csSlotBorder:GetTexture(), borderFile)
+      if info.slot == "main_hand" or info.slot == "off_hand" or info.slot == "ranged" or info.slot == "ammo" then
+        eq(btn._csSlotBorderKind, "bottom")
+      elseif info.slot == "hands" or info.slot == "waist" or info.slot == "legs" or info.slot == "feet"
+          or info.slot == "finger1" or info.slot == "finger2" or info.slot == "trinket1" or info.slot == "trinket2" then
+        eq(btn._csSlotBorderKind, "right")
+      else
+        eq(btn._csSlotBorderKind, "left")
+      end
+    end
 
     local toggle = _G.CrusaderStrikeGearTabToggle
     ok(toggle ~= nil)
@@ -407,19 +426,14 @@ describe("character gear tab scaffold", function()
     local iconRow = _G.CrusaderStrikeGearIconRow
     eq(iconRow:GetParent(), pop)
 
-    -- Tab row spans the pop-out. The three panes hang off the bottom of that row.
+    -- Icon row is centered on the pop-out (TOP/TOP), only as wide as the buttons.
     local ip, irel, irp, ix, iy = iconRow:GetPoint(1)
-    eq(ip, "TOPLEFT")
+    eq(ip, "TOP")
     eq(irel, pop)
-    eq(irp, "TOPLEFT")
+    eq(irp, "TOP")
     eq(ix, 0)
     eq(iy, -UI.SIDEBAR_TAB_GAP)
-    local ip2, irel2, irp2, ix2, iy2 = iconRow:GetPoint(2)
-    eq(ip2, "TOPRIGHT")
-    eq(irel2, pop)
-    eq(irp2, "TOPRIGHT")
-    eq(ix2, 0)
-    eq(iy2, -UI.SIDEBAR_TAB_GAP)
+    eq(iconRow:GetWidth(), (UI.SIDEBAR_TAB_W * 3) + (UI.SIDEBAR_TAB_GAP * 2))
     eq(irel == root, false)
     eq(irel == _G.CrusaderStrikeGearDoll, false)
     eq(irel == _G.UIParent, false)
@@ -436,17 +450,21 @@ describe("character gear tab scaffold", function()
       eq(panel:GetParent() == _G.CharacterFrame, false)
       eq(panel:GetParent() == _G.UIParent, false)
       local p1, rel1, rp1, x1, y1 = panel:GetPoint(1)
-      eq(p1, "TOPLEFT")
+      eq(p1, "TOP")
       eq(rel1, iconRow)
-      eq(rp1, "BOTTOMLEFT")
+      eq(rp1, "BOTTOM")
       eq(x1, 0)
       eq(y1, -UI.SIDEBAR_TAB_GAP)
-      local p2, rel2, rp2, x2, y2 = panel:GetPoint(2)
-      eq(p2, "BOTTOMRIGHT")
+      local p2, rel2, rp2, x2 = panel:GetPoint(2)
+      eq(p2, "LEFT")
       eq(rel2, pop)
-      eq(rp2, "BOTTOMRIGHT")
+      eq(rp2, "LEFT")
       eq(x2, 0)
-      eq(y2, 0)
+      local p3, rel3, rp3, x3 = panel:GetPoint(3)
+      eq(p3, "RIGHT")
+      eq(rel3, pop)
+      eq(rp3, "RIGHT")
+      eq(x3, -x2)
       eq(rel1:GetParent(), pop)
       eq(rel1 == root, false)
       eq(rel1 == _G.CharacterFrame, false)
@@ -1090,6 +1108,10 @@ describe("character gear tab scaffold", function()
     }
     _G.CharacterFrameRightPaneToggleButton = cf.RightPaneToggleButton
     _G.CharacterFrame = cf
+    cf.RightPaneHost = {
+      _width = 233,
+      GetWidth = function(self) return self._width end,
+    }
     cf.LeftPaneHost = {
       _width = 398,
       GetWidth = function(self) return self._width end,
@@ -1100,6 +1122,27 @@ describe("character gear tab scaffold", function()
     cf.GetWidth = function(self) return self._width end
     UI.Show()
     eq(_G.CrusaderStrikeGearSideToggle, nil)
+    local pop = _G.CrusaderStrikeGearPopout
+    local iconRow = _G.CrusaderStrikeGearIconRow
+    local rightW = cf.RightPaneHost:GetWidth()
+    eq(pop._csRightPaneHost, true)
+    eq(pop:GetWidth(), rightW)
+    eq(pop:GetWidth(), 233)
+    local pp, prel = pop:GetPoint(1)
+    eq(pp, "TOPLEFT")
+    eq(prel, cf.RightPaneHost)
+    local ip, irel, irp, ix = iconRow:GetPoint(1)
+    eq(ip, "TOP")
+    eq(irel, pop)
+    eq(irp, "TOP")
+    eq(ix, 0)
+    -- TOP/TOP x=0 puts the icon-row center on the pop-out center.
+    -- Filling RightPaneHost with zero insets puts the pop-out center on the right pane.
+    local popCenter = pop:GetWidth() / 2
+    local rowCenter = popCenter + ix
+    local rightCenter = rightW / 2
+    eq(rowCenter, popCenter)
+    eq(popCenter, rightCenter)
     local main = _G.CrusaderStrikeGearMainPane
     local doll = _G.CrusaderStrikeGearDoll
     local function centers_match()
@@ -1486,6 +1529,143 @@ describe("character gear tab scaffold", function()
     _G.GetItemInfoInstant = prevInfo
     _G.GetItemInfo = prevGet
     _G.CrusaderStrikeCharDB = prevDb
+    _G.CharacterFrame = prevChar
+  end)
+
+  it("shows every Ragefire item for every class and tints what they cannot wear", function()
+    local UI = CrusaderStrike.CharacterGearTab
+    local prevClass = _G.UnitClass
+    local prevInfo = _G.GetItemInfoInstant
+    local prevGet = _G.GetItemInfo
+    local prevChar = _G.CharacterFrame
+    _G.CharacterFrame = {
+      ModeTabs = { Tabs = {} },
+      shown = true,
+      IsShown = function(self) return self.shown end,
+    }
+    -- Uncached client info. Bundled armor type still classifies known rows.
+    _G.GetItemInfoInstant = function()
+      return nil
+    end
+    _G.GetItemInfo = function()
+      return nil
+    end
+    local dungeon = CrusaderStrikeLoot.GetDungeon("forever", 389)
+    local rfc = {}
+    local bySlot = {}
+    for _, boss in ipairs(dungeon.bosses) do
+      for _, row in ipairs(boss.items) do
+        rfc[#rfc + 1] = row
+        bySlot[row.slot] = true
+      end
+    end
+    -- Cloth chest and leather wrists are in the table. AtlasLoot Classic RFC
+    -- has no waist, leg, or hands drops, so those slots stay empty.
+    eq(bySlot.Chest, true)
+    eq(bySlot.Wrist, true)
+    eq(bySlot.Waist, nil)
+    eq(bySlot.Legs, nil)
+    eq(bySlot.Hands, nil)
+    local GB = CrusaderStrikeGearBrowser
+    eq(GB.NormalizeLootSlot("INVTYPE_ROBE"), "Chest")
+    eq(GB.NormalizeLootSlot("INVTYPE_WRIST"), "Wrist")
+    eq(GB.NormalizeLootSlot("INVTYPE_WAIST"), "Waist")
+    eq(GB.NormalizeLootSlot("INVTYPE_LEGS"), "Legs")
+    eq(GB.NormalizeLootSlot("INVTYPE_HAND"), "Hands")
+    eq(GB.NormalizeLootSlot("INVTYPE_CLOAK"), "Back")
+    UI.Show()
+    UI.DeselectSlot()
+    UI.SelectDungeon(389)
+    local classes = { "MAGE", "PRIEST", "WARLOCK", "DRUID", "ROGUE", "HUNTER", "SHAMAN", "WARRIOR", "PALADIN" }
+    for _, classToken in ipairs(classes) do
+      _G.UnitClass = function() return classToken, classToken end
+      local rows = UI.BrowserRows()
+      for _, it in ipairs(rfc) do
+        local found = false
+        for _, row in ipairs(rows) do
+          if row.itemId == it.itemId then
+            found = true
+            break
+          end
+        end
+        ok(found)
+      end
+    end
+    local function find_row(id)
+      for _, row in ipairs(UI.BrowserRows()) do
+        if row.itemId == id then
+          return row
+        end
+      end
+    end
+    local function find_btn(id)
+      for _, btn in ipairs(_G.CrusaderStrikeGearBrowserPanel._csResults or {}) do
+        if btn._itemId == id then
+          return btn
+        end
+      end
+    end
+    local function show_browser()
+      local preview = UI.GetPreview()
+      if not (preview.view == "browser" and preview.popout) then
+        UI.TogglePane("browser")
+      end
+      UI.SelectDungeon(389)
+    end
+    _G.UnitClass = function() return "PALADIN", "PALADIN" end
+    UI.DeselectSlot()
+    eq(find_row(14148).equipState, "ok")
+    eq(find_row(14150).equipState, "ok")
+    _G.UnitClass = function() return "Druid", "DRUID" end
+    UI.DeselectSlot()
+    show_browser()
+    eq(find_row(14150).equipState, "ok") -- cloth robe, bundled type
+    eq(find_row(14147).equipState, "ok") -- leather wrists, bundled type
+    eq(find_row(14148).equipState, "no") -- mail cuffs, bundled type
+    eq(find_row(14145).equipState, "no") -- known sword, druids cannot equip it
+    -- No client cache and no bundled armor: show normally, do not tint.
+    eq(find_row(273007).equipState, "unknown")
+    eq(find_row(273003).equipState, "ok")
+    local mailBtn = find_btn(14148)
+    local feetBtn = find_btn(273007)
+    local daggerBtn = find_btn(273003)
+    ok(mailBtn ~= nil)
+    ok(feetBtn ~= nil)
+    ok(daggerBtn ~= nil)
+    eq(mailBtn._csUnequippable, true)
+    eq(mailBtn._csTint[1], 1)
+    eq(mailBtn._csTint[2], 0.1)
+    eq(mailBtn._csTint[3], 0.1)
+    ok(mailBtn._csEquipLine:find("cannot equip") ~= nil)
+    eq(feetBtn._csUnequippable, false)
+    eq(feetBtn._csTint[1], 1)
+    eq(feetBtn._csTint[2], 1)
+    eq(daggerBtn._csUnequippable, false)
+    UI.OnGearSlot("wrist", "LeftButton")
+    eq(select(1, UI.EquipItem(14148)), false)
+    UI.OnGearSlot("chest", "LeftButton")
+    ok(select(1, UI.EquipItem(14150)))
+    UI.OnGearSlot("feet", "LeftButton")
+    eq(select(1, UI.EquipItem(273007)), false)
+    UI.DeselectSlot()
+    show_browser()
+    _G.GetItemInfoInstant = function(itemId)
+      if tonumber(itemId) == 273003 then
+        return 273003, "Weapon", "One-Handed Swords", "INVTYPE_WEAPON", "x", 2, 7
+      end
+      return nil
+    end
+    local watcher = _G.CrusaderStrikeGearItemInfoWatcher
+    watcher:GetScript("OnEvent")(watcher, "GET_ITEM_INFO_RECEIVED", 273003)
+    eq(find_row(273003).equipState, "no")
+    daggerBtn = find_btn(273003)
+    eq(daggerBtn._csUnequippable, true)
+    eq(daggerBtn._csTint[2], 0.1)
+    UI.OnGearSlot("main_hand", "LeftButton")
+    eq(select(1, UI.EquipItem(273003)), false)
+    _G.UnitClass = prevClass
+    _G.GetItemInfoInstant = prevInfo
+    _G.GetItemInfo = prevGet
     _G.CharacterFrame = prevChar
   end)
 end)

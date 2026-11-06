@@ -193,7 +193,7 @@ function GB.ItemLootSlot(itemId, gameVersion)
   end
   local it = CrusaderStrikeLoot.LookupItem(version_name(gameVersion), itemId)
   if type(it) == "table" and type(it.slot) == "string" and it.slot ~= "" then
-    return it.slot
+    return GB.NormalizeLootSlot(it.slot)
   end
   return nil
 end
@@ -314,10 +314,45 @@ function GB.ListDungeons(gameVersion, sources)
   return sort_dungeons(list)
 end
 
+local INVTYPE_TO_LOOT = {
+  INVTYPE_HEAD = "Head",
+  INVTYPE_NECK = "Neck",
+  INVTYPE_SHOULDER = "Shoulder",
+  INVTYPE_CLOAK = "Back",
+  INVTYPE_CHEST = "Chest",
+  INVTYPE_ROBE = "Chest",
+  INVTYPE_BODY = "Shirt",
+  INVTYPE_TABARD = "Tabard",
+  INVTYPE_WRIST = "Wrist",
+  INVTYPE_HAND = "Hands",
+  INVTYPE_WAIST = "Waist",
+  INVTYPE_LEGS = "Legs",
+  INVTYPE_FEET = "Feet",
+  INVTYPE_FINGER = "Finger",
+  INVTYPE_TRINKET = "Trinket",
+  INVTYPE_WEAPON = "Weapon",
+  INVTYPE_WEAPONMAINHAND = "Weapon",
+  INVTYPE_2HWEAPON = "Weapon",
+  INVTYPE_WEAPONOFFHAND = "Held In Off-hand",
+  INVTYPE_SHIELD = "Shield",
+  INVTYPE_HOLDABLE = "Held In Off-hand",
+  INVTYPE_RANGED = "Ranged",
+  INVTYPE_RANGEDRIGHT = "Ranged",
+  INVTYPE_THROWN = "Ranged",
+}
+
+function GB.NormalizeLootSlot(slot)
+  if type(slot) ~= "string" then
+    return slot
+  end
+  return INVTYPE_TO_LOOT[slot:upper()] or slot
+end
+
 local function gear_allows(gearSlot, lootSlot)
   if gearSlot == nil or gearSlot == "" then
     return true
   end
+  lootSlot = GB.NormalizeLootSlot(lootSlot)
   local allowed = GEAR_LOOT[gearSlot]
   if not allowed then
     return false

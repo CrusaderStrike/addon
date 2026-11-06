@@ -440,6 +440,9 @@ local function apply_native_side_pane(cf)
   if UI.RealignMainPane then
     UI.RealignMainPane(cf)
   end
+  if UI.RealignSidePane then
+    UI.RealignSidePane(cf)
+  end
   local collapsed = native_right_pane_collapsed(cf)
   if collapsed == nil then
     return
@@ -633,7 +636,46 @@ local function install_set_list_hooks()
   end
 end
 
-local function browser_rows()
+function UI.ItemEquipState(itemId, gearSlot, classToken)
+  classToken = classToken or UI.PlayerClassToken()
+  local slots = {}
+  if type(gearSlot) == "string" and gearSlot ~= "" then
+    slots[1] = gearSlot
+  elseif CrusaderStrikeGearBrowser and CrusaderStrikeGearBrowser.GearSlotForItem then
+    local slot = CrusaderStrikeGearBrowser.GearSlotForItem(itemId, game_version(), {})
+    if slot then
+      slots[1] = slot
+    end
+  end
+  if #slots == 0 then
+    return "unknown"
+  end
+  local sawUnknown = false
+  local lastReason
+  for i = 1, #slots do
+    local okPlace, reason = UI.CheckEquip(itemId, slots[i], {}, classToken)
+    if okPlace then
+      return "ok"
+    end
+    if reason == "unknown_item" then
+      sawUnknown = true
+    end
+    lastReason = reason
+  end
+  if sawUnknown then
+    return "unknown"
+  end
+  return "no", lastReason
+end
+
+local browser_rows
+local reject_status
+
+function UI.BrowserRows()
+  return browser_rows()
+end
+
+browser_rows = function()
   if not CrusaderStrikeGearBrowser or not CrusaderStrikeGearBrowser.Filter then
     return {}
   end
@@ -643,18 +685,14 @@ local function browser_rows()
     gearSlot = state.gearSlot,
     difficulty = CrusaderStrikeGearBrowser.FOREVER_NORMAL,
   }, game_version())
-  if not UI.AcceptsWeapon then
-    return rows
-  end
   local classToken = UI.PlayerClassToken()
-  local kept = {}
   for i = 1, #rows do
     local row = rows[i]
-    if UI.AcceptsWeapon(row.itemId, state.gearSlot, classToken) then
-      kept[#kept + 1] = row
-    end
+    local equipState, reason = UI.ItemEquipState(row.itemId, state.gearSlot, classToken)
+    row.equipState = equipState
+    row.equipReason = reason
   end
-  return kept
+  return rows
 end
 
 local function browser_empty_text()
@@ -786,6 +824,13 @@ local function ensure_result_button(i)
     elseif GameTooltip.SetText then
       GameTooltip:SetText(self._label or tostring(self._itemId))
     end
+    if self._csUnequippable and self._csEquipLine then
+      if GameTooltip.AddLine then
+        GameTooltip:AddLine(self._csEquipLine, 1, 0.1, 0.1)
+      elseif GameTooltip.SetText then
+        GameTooltip:SetText(self._csEquipLine)
+      end
+    end
     if GameTooltip.Show then
       GameTooltip:Show()
     end
@@ -813,8 +858,24 @@ function refresh_browser()
       btn:Show()
       btn._itemId = row.itemId
       btn._label = row.name or ("item " .. tostring(row.itemId))
+      btn._csEquipState = row.equipState
+      btn._csEquipReason = row.equipReason
+      btn._csUnequippable = row.equipState == "no"
+      if row.equipState == "no" and reject_status then
+        btn._csEquipLine = reject_status(row.equipReason, UI.PlayerClassToken())
+      else
+        btn._csEquipLine = nil
+      end
       local tex = resolve_item_icon(row.itemId)
       set_button_icon(btn, tex, QUESTION)
+      local r, g, b = 1, 1, 1
+      if row.equipState == "no" then
+        r, g, b = 1, 0.1, 0.1
+      end
+      btn._csTint = { r, g, b }
+      if btn.icon and btn.icon.SetVertexColor then
+        btn.icon:SetVertexColor(r, g, b)
+      end
     end
   end
   for i = count + 1, #resultButtons do
@@ -837,6 +898,7 @@ function refresh_browser()
       browserEmpty:Hide()
     end
   end
+  browserPanel._csResults = resultButtons
   if browserMore then
     if count > 0 then
       browserMore:Show()
@@ -871,6 +933,7 @@ end
 
 function UI.DeselectSlot()
   state.activeSlot = nil
+  state.gearSlot = nil
 end
 
 -- Left-click a CS gear-set slot: select it and open the browser filter.
@@ -1484,7 +1547,7 @@ function UI.AcceptsWeapon(itemId, gearSlot, classToken)
   return false
 end
 
-local function reject_status(reason, classToken)
+reject_status = function(reason, classToken)
   if reason == "wrong_slot" then
     return "That item does not go in that slot."
   end
@@ -1778,6 +1841,26 @@ local function make_slot_button(parent, info, x, y)
   return btn
 end
 
+local function apply_slot_border(btn, kind)
+  local borders = Layout and Layout.slotBorder
+  local spec = borders and borders[kind]
+  if not spec or not btn.CreateTexture then
+    return
+  end
+  local border = btn:CreateTexture(nil, "BACKGROUND", nil, -1)
+  border:SetTexture(borders.file)
+  if border.SetTexCoord then
+    border:SetTexCoord(spec.coords[1], spec.coords[2], spec.coords[3], spec.coords[4])
+  end
+  if border.SetSize then
+    border:SetSize(spec.w, spec.h)
+  end
+  border:SetPoint(spec.point, btn, spec.point, spec.x or 0, spec.y or 0)
+  btn._csSlotBorder = border
+  btn._csSlotBorderTex = borders.file
+  btn._csSlotBorderKind = kind
+end
+
 local function place_slot(info, point, relPoint, x, y)
   local btn = make_slot_button(dollFrame, info, 0, 0)
   if btn.ClearAllPoints then
@@ -1785,6 +1868,13 @@ local function place_slot(info, point, relPoint, x, y)
   end
   btn:SetPoint(point, dollFrame, relPoint, x, y)
   btn._csAnchor = point
+  if point == "TOPRIGHT" then
+    apply_slot_border(btn, "right")
+  elseif point == "BOTTOMLEFT" then
+    apply_slot_border(btn, "bottom")
+  else
+    apply_slot_border(btn, "left")
+  end
   return btn
 end
 
@@ -1829,10 +1919,13 @@ local function apply_class_slots()
 end
 
 local function build_doll(parent)
-  dollFrame = CreateFrame("Frame", "CrusaderStrikeGearDoll", parent, "BackdropTemplate")
-  -- PaperDoll-sized viewer. Not CharacterFrame and not stretched over the sheet.
+  dollFrame = CreateFrame("Frame", "CrusaderStrikeGearDoll", parent)
+  -- PaperDoll-sized viewer. No backdrop: the native level line stays text-only
+  -- and the doll has no frame edge of its own.
   dollFrame._csPaperDoll = true
   dollFrame._csOwnedDoll = true
+  dollFrame._csBackdrop = nil
+  dollFrame._csLevelBackground = nil
   if dollFrame.SetParent then
     dollFrame:SetParent(parent)
   end
@@ -1850,7 +1943,9 @@ local function build_doll(parent)
   if dollFrame.SetFrameLevel then
     dollFrame:SetFrameLevel(20)
   end
-  apply_backdrop(dollFrame)
+  if dollFrame.SetBackdrop then
+    dollFrame:SetBackdrop(nil)
+  end
 
   local bySlot = {}
   for _, info in ipairs(UI.SLOT_BUTTONS) do
@@ -2071,6 +2166,42 @@ function UI.RealignMainPane(cf)
   mainPane._csMainPane = true
 end
 
+function UI.RealignSidePane(cf)
+  if not popout then
+    return
+  end
+  cf = cf or _G.CharacterFrame
+  local side = Layout and Layout.panes and Layout.panes.side or {}
+  local right = cf and cf.RightPaneHost
+  if popout.ClearAllPoints then
+    popout:ClearAllPoints()
+  end
+  if right then
+    popout:SetPoint("TOPLEFT", right, "TOPLEFT", 0, 0)
+    popout:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", 0, 0)
+    local hostW = (right.GetWidth and right:GetWidth()) or side.hostWidth or 233
+    popout:SetWidth(hostW)
+    popout._csRightPaneHost = true
+  else
+    popout:SetWidth(side.width or UI.SIDEBAR_WIDTH)
+    popout:SetPoint("TOPLEFT", dollFrame, "TOPRIGHT", 0, 0)
+    popout:SetPoint("BOTTOMLEFT", dollFrame, "BOTTOMRIGHT", 0, 0)
+    popout._csRightPaneHost = false
+  end
+  if iconRow then
+    local row = (Layout and Layout.iconRow) or {}
+    local gap = row.gap or UI.SIDEBAR_TAB_GAP
+    local tabW = row.tabW or UI.SIDEBAR_TAB_W
+    local tabH = row.tabH or UI.SIDEBAR_TAB_H
+    if iconRow.ClearAllPoints then
+      iconRow:ClearAllPoints()
+    end
+    iconRow:SetPoint("TOP", popout, "TOP", 0, -gap)
+    iconRow:SetWidth(row.width or ((tabW * 3) + (gap * 2)))
+    iconRow:SetHeight(tabH)
+  end
+end
+
 local function clear_mode_tab_checks(cf)
   local tabs = cf and cf.ModeTabs and cf.ModeTabs.Tabs
   if type(tabs) ~= "table" then
@@ -2183,6 +2314,8 @@ local function ensure_ui()
 
   mainPane = CreateFrame("Frame", (Layout and Layout.mainPane and Layout.mainPane.frame) or "CrusaderStrikeGearMainPane", root)
   mainPane._csMainPane = true
+  mainPane._csBackdrop = nil
+  mainPane._csLevelBackground = nil
   build_doll(mainPane)
   UI.RealignMainPane(_G.CharacterFrame)
   if dollFrame and dollFrame.Show then
@@ -2217,6 +2350,7 @@ local function ensure_ui()
   popout._csSidebar = true
   popout:SetWidth(UI.SIDEBAR_WIDTH)
   apply_layout_points(popout, Layout and Layout.panes.side.anchor)
+  UI.RealignSidePane(_G.CharacterFrame)
   if popout.SetClipsChildren then
     popout:SetClipsChildren(true)
   end
