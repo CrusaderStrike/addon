@@ -2784,7 +2784,8 @@ local function ensure_ui()
   statsPanel:Hide()
 
   statsHeader = add_text(statsPanel, "GameFontNormal", "Gear set stats", 10, -10)
-  local statsHint = add_text(statsPanel, "GameFontDisableSmall", "Totals of this gear set. Not live character stats.", 10, -28)
+  local statsHint = add_text(statsPanel, "GameFontDisableSmall", "Totals from items in this set", 10, -28)
+  statsPanel._csHint = statsHint
   if statsHint.SetWidth then
     statsHint:SetWidth(UI.POPOUT_INNER)
   end

@@ -116,8 +116,10 @@ logo button in the strip.
   **scrollable icon grid** (`CrusaderStrikeGearResultScroll`) whose column
   count fills the pop-out inner width. There is no hard 8-row cap; every
   matching Forever-overlay item is reachable.
-- Stats pane (`Gear set stats`) sums the current planner slots, including
-  ammo and the ranged slot. `GetItemStats("item:" .. id)` supplies
+- Stats pane (`Gear set stats`) is gear-only. The hint reads
+  `Totals from items in this set`. It sums the items in the planner slots,
+  including ammo and the ranged slot, and does not add the character's base
+  stats or a delta against replaced gear. `GetItemStats("item:" .. id)` supplies
   `ITEM_MOD_*` and `RESISTANCE*_NAME` values (strength, agility, stamina,
   intellect, spirit, armor, the five resists, attack power, ranged attack
   power, spell power, healing, hit, crit, MP5, block, defense, and weapon
